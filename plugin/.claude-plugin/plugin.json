@@ -1,0 +1,6 @@
+{
+  "name": "panel-agentes",
+  "version": "0.1.0",
+  "description": "Panel de Obra: página local que muestra en vivo, en lenguaje simple, a los agentes de tus skills escalera-de-ejecucion, subagentes y director-de-obra. Solo 127.0.0.1, sin datos externos.",
+  "author": { "name": "Christopher González Bustamante" }
+}

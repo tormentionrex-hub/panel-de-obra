@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Panel de Obra</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/panel.css">
+<script src="/panel.js" defer></script>
+</head>
+<body>
+<a class="saltar" href="#lienzo">Saltar al tablero</a>
+
+<div class="ventana">
+  <header class="ventana__barra">
+    <span class="semaforo" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span id="ventana-titulo" class="ventana__titulo">~/obra — panel de obra</span>
+    <span class="ventana__control">
+      <span id="conexion" class="conexion" data-estado="conectando" role="status">conectando…</span>
+      <span class="modo" role="group" aria-label="Forma de mostrar la actividad">
+        <button type="button" class="modo__btn" data-modo="simple" aria-pressed="true">Simple</button>
+        <button type="button" class="modo__btn" data-modo="tecnico" aria-pressed="false">Técnico</button>
+      </span>
+    </span>
+  </header>
+
+  <div class="ventana__cuerpo">
+    <h1 id="titular" class="titular">PANEL DE OBRA</h1>
+    <ul id="leyenda" class="leyenda" aria-label="Colores por rol"></ul>
+    <p id="aviso-simulacion" class="aviso" hidden>DATOS DE EJEMPLO · simulador de F1 · nada de lo que ves es real</p>
+
+    <main id="lienzo" tabindex="-1">
+      <!-- tablero -->
+      <section id="vista-tablero" class="tablero" aria-label="Tablero">
+        <svg id="conectores" class="conectores" aria-hidden="true"></svg>
+        <div id="col-asesor" class="col-asesor"></div>
+        <div class="arbol">
+          <div class="fila fila--principal">
+            <div id="caja-principal" class="ranura-principal"></div>
+            <div id="caja-ritmo" class="mini"></div>
+          </div>
+          <div class="fila fila--actividad">
+            <div id="caja-actividad" class="ranura-actividad"></div>
+            <div id="caja-pruebas" class="mini"></div>
+          </div>
+          <p id="rotulo-subagentes" class="rotulo"></p>
+          <div id="lista-subagentes" class="hijos"></div>
+          <p id="rotulo-terminales" class="rotulo"></p>
+          <div id="lista-terminales" class="hijos"></div>
+          <div class="fila fila--vuelta"><div id="caja-vuelta" class="ranura-vuelta"></div></div>
+        </div>
+      </section>
+
+      <!-- detalle («Ver más») -->
+      <section id="vista-detalle" class="detalle" aria-label="Detalle del agente" hidden>
+        <div class="detalle__cabecera">
+          <a href="#/" class="volver">◂ volver al tablero</a>
+          <h2 id="detalle-nombre" class="detalle__nombre"></h2>
+          <span id="detalle-modelo" class="detalle__meta"></span>
+          <span id="detalle-estado" class="estado"></span>
+        </div>
+        <div class="detalle__cuerpo">
+          <section class="marco" aria-labelledby="t-resumen">
+            <h3 id="t-resumen" class="marco__titulo"><span>resumen · sin tecnicismos</span></h3>
+            <dl id="detalle-datos" class="datos"></dl>
+            <h4 class="sub">lo que ha hecho</h4>
+            <ul id="detalle-hecho" class="hecho"></ul>
+            <h4 class="sub">resultado</h4>
+            <p id="detalle-resultado" class="resultado"></p>
+          </section>
+          <section class="marco marco--terminal" aria-labelledby="t-terminal">
+            <h3 id="t-terminal" class="marco__titulo"><span>terminal en vivo</span></h3>
+            <ol id="detalle-terminal" class="terminal terminal--grande"></ol>
+            <button type="button" id="ir-al-final" class="ir-final" hidden>↓ ir a lo último</button>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div class="pie">
+      <section class="marco marco--log" aria-labelledby="t-log">
+        <h2 id="t-log" class="marco__titulo"><span>bitácora</span></h2>
+        <ol id="bitacora" class="log"></ol>
+      </section>
+      <section id="caja-tokens" class="marco marco--tokens" aria-labelledby="t-tokens"></section>
+    </div>
+
+    <p id="prompt" class="prompt"></p>
+    <p id="barra-estado" class="barra-estado"></p>
+  </div>
+</div>
+
+<div id="anuncios" class="solo-lector" aria-live="polite"></div>
+</body>
+</html>

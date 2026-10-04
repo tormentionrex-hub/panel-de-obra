@@ -1,0 +1,162 @@
+{
+  "description": "Panel de Obra: avisa al panel local de lo que hacen tus agentes. Silencioso y sin bloquear.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptExpansion": [
+      {
+        "matcher": "escalera-de-ejecucion|subagentes|director-de-obra",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Skill|Agent|Task|Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

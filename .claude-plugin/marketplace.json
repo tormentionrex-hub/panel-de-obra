@@ -1,0 +1,12 @@
+{
+  "name": "panel-agentes-local",
+  "owner": { "name": "Christopher González Bustamante" },
+  "plugins": [
+    {
+      "name": "panel-agentes",
+      "source": "./plugin",
+      "description": "Panel de Obra: página local que muestra en vivo a los agentes de escalera-de-ejecucion, subagentes y director-de-obra.",
+      "version": "0.1.0"
+    }
+  ]
+}

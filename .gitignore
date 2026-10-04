@@ -1,0 +1,19 @@
+# Dependencias y registros
+node_modules/
+*.log
+
+# Configuración y datos locales de cada equipo (nunca se publican)
+.claude/
+.env
+.env.*
+*.pem
+*.key
+secreto
+estado/
+obras/
+registro/
+
+# Documentos con datos personales del entorno de desarrollo
+PLAN-panel-agentes.md
+pruebas/datos-f0/
+_prueba/
