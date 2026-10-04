@@ -23,6 +23,9 @@ export const PUERTOS = Array.from({ length: 10 }, (_, i) => PUERTO_BASE + i);
 // Skills que activan una obra. Las de ABREN abren la página al instante; el resto, al lanzar su primer agente.
 export const SKILLS = ["escalera-de-ejecucion", "subagentes", "director-de-obra"];
 export const ABREN = ["subagentes", "director-de-obra"];
+// /panel: abre la página y además empieza a seguir la sesión donde se escribe, aunque no use esas skills.
+export const SEGUIR = ["panel", "panel-agentes:panel"];
+export const esSeguir = (nombre) => SEGUIR.includes(nombre);
 
 export const LIMITES = {
   cuerpoMax: 256 * 1024,      // bytes por evento recibido
@@ -44,7 +47,7 @@ export function leerConfig() {
 }
 export function skillsActivas() {
   const c = leerConfig();
-  return { todas: [...SKILLS, ...(c.skillsExtra || [])], abren: [...ABREN, ...(c.skillsExtra || [])], autoabrir: c.autoabrir !== false };
+  return { todas: [...SKILLS, ...SEGUIR, ...(c.skillsExtra || [])], abren: [...ABREN, ...(c.skillsExtra || [])], autoabrir: c.autoabrir !== false };
 }
 
 /** Secreto compartido entre el reenviador y el servidor; solo legible por tu usuario. */

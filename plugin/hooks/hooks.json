@@ -31,7 +31,7 @@
     ],
     "UserPromptExpansion": [
       {
-        "matcher": "escalera-de-ejecucion|subagentes|director-de-obra",
+        "matcher": "escalera-de-ejecucion|subagentes|director-de-obra|panel|panel-agentes:panel",
         "hooks": [
           {
             "type": "command",

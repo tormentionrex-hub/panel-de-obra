@@ -93,7 +93,9 @@ Antes de tocar tu `~/.claude/settings.json` hace una copia de seguridad, y al te
 ## Uso
 
 - **No hay que hacer nada.** Al abrir Claude Code el servidor se levanta solo. Cuando una de las skills configuradas empieza a trabajar, la página se abre sola (una vez por obra y solo si no hay ya una pestaña abierta).
-- **Para abrirla a mano:** `/panel` dentro de Claude Code, o `herramientas/abrir-panel.cmd`.
+- **Seguir cualquier chat:** escribe `/panel-agentes:panel` en Claude Code (al escribir `/panel` el autocompletado lo propone). Abre la página y, desde ese momento, el panel sigue esa sesión aunque no use ninguna de las skills de orquestación.
+- **Para abrir la página sin seguir nada:** `herramientas/abrir-panel.cmd`.
+- **Varias obras a la vez:** la página muestra la última que empezó. Si esa obra ya terminó y otra sigue trabajando, cambia sola a la que está viva.
 - **Simple / Técnico:** «Leyendo pedidos.ts» frente a `Read src/pedidos.ts`.
 
 ### Qué skills activan una obra
@@ -156,8 +158,8 @@ node herramientas/simulador.mjs --abrir
 plugin/
   .claude-plugin/plugin.json   manifiesto del plugin
   hooks/hooks.json             hooks (lo genera el instalador)
-  bin/                         reenviar.mjs (hook) · abrir.mjs (/panel) · comun.mjs
-  commands/panel.md            comando /panel
+  bin/                         reenviar.mjs (hook) · abrir.mjs (/panel-agentes:panel) · comun.mjs
+  commands/panel.md            comando /panel-agentes:panel
   servidor/                    servidor · episodios (estado) · transcripts · intérprete · redacción
   web/                         index.html · panel.css · panel.js
 herramientas/                  instalar · desinstalar · asesor · simulador · abrir-panel.cmd

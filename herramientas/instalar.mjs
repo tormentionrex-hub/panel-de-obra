@@ -32,7 +32,7 @@ const hooks = {
   description: "Panel de Obra: avisa al panel local de lo que hacen tus agentes. Silencioso y sin bloquear.",
   hooks: {
     SessionStart: evento(), SessionEnd: evento(),
-    UserPromptExpansion: evento("escalera-de-ejecucion|subagentes|director-de-obra"),
+    UserPromptExpansion: evento("escalera-de-ejecucion|subagentes|director-de-obra|panel|panel-agentes:panel"),
     PreToolUse: evento("Skill|Agent|Task|Workflow"),
     PermissionRequest: evento(), PermissionDenied: evento(),
     Notification: evento("permission_prompt|idle_prompt"),

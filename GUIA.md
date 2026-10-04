@@ -13,10 +13,10 @@ Todo ocurre en tu computador: el panel solo escucha en `127.0.0.1`, no usa inter
    - Con `escalera-de-ejecucion`, la página se abre solo cuando reparte trabajo a otro agente.
    - Si ya tienes la página abierta, no se abre otra.
 3. **Para abrirla a mano:**
-   - escribe `/panel` en Claude Code;
+   - escribe `/panel-agentes:panel` en Claude Code (al escribir `/panel` el autocompletado te lo propone). Además de abrir la página, **el panel empieza a seguir ese chat**, aunque no use tus skills de obra;
    - o haz doble clic en `herramientas\abrir-panel.cmd`.
 
-   El enlace que se abre es de un solo uso. Si reinicias el navegador, vuelve a pedirlo con `/panel`.
+   El enlace que se abre es de un solo uso. Si reinicias el navegador, vuelve a pedirlo con `/panel-agentes:panel`.
 
 ## 2. Qué ves
 
@@ -84,8 +84,9 @@ Los comandos con `node` se corren dentro de la carpeta donde descargaste este pr
 
 | Síntoma | Qué hacer |
 |---|---|
-| La página no se abrió | Escribe `/panel`. Comprueba que no exista el archivo `apagado` |
-| «Este enlace ya se usó o caducó» | Pide uno nuevo con `/panel` |
+| La página está vacía («esperando a que una de tus skills empiece») | Ese chat no ha activado ninguna de tus skills de obra. Escribe `/panel-agentes:panel` en ese chat para que el panel lo siga |
+| La página no se abrió | Escribe `/panel-agentes:panel`. Comprueba que no exista el archivo `apagado` |
+| «Este enlace ya se usó o caducó» | Pide uno nuevo con `/panel-agentes:panel` |
 | Una caja dice «por confirmar» mucho rato | En la terminal (`claude -p`), Claude Code escribe el registro del agente principal en tandas: se completa al avanzar. En la app de escritorio es inmediato |
 | Una terminal de `subagentes` no aparece | Se reconoce por el nombre (`claude --name X`) que la obra anuncia. Si se abrió con otro nombre, no se muestra para no mezclar obras |
 | Algo raro | Mira `%USERPROFILE%\.claude\panel-agentes\registro\servidor.log` |

@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, readdirSync, unlinkSync, existsSync } from
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { DIR_OBRAS, LIMITES, skillsActivas, asegurarCarpetas } from "./config.mjs";
+import { DIR_OBRAS, LIMITES, skillsActivas, asegurarCarpetas, esSeguir } from "./config.mjs";
 import { Lector, buscarSubagente, leerMeta, nombreDeSesion, rutaPermitida, tamano } from "./transcripts.mjs";
 import { describir, resultado, nombreModelo } from "./interprete.mjs";
 import { corto, redactar } from "./redactar.mjs";
@@ -49,6 +49,14 @@ export class Panel {
     if (["trabajando", "permiso", "espera"].includes(a.estado)) a.fin = null;
     this.agentes.set(cardId, a);
     const o = this.obras.get(a.obraId); if (o) this.tocar(o);
+    // Si la obra que se ve ya terminó (su principal se cerró o la obra se cerró) y otra tiene actividad, la página cambia a esa.
+    if (a.obraId && !this.enVista(a.obraId) && ["trabajando", "permiso"].includes(a.estado)) {
+      const vista = this.obras.get(this.visible);
+      const principal = vista && this.agentes.get("p:" + vista.sesion);
+      if (!vista || !vista.abierta || (principal && ["detenido", "fallo"].includes(principal.estado))) {
+        this.visible = a.obraId; this.emitir(this.snapshot()); return a;
+      }
+    }
     if (this.enVista(a.obraId)) this.emitir({ tipo: "agente", agente: a });
     return a;
   }
@@ -170,12 +178,13 @@ export class Panel {
 
   // ── activación de una obra ─────────────────────────────────
   activar(s, skill, comando, t0, ev) {
+    if (esSeguir(skill)) { skill = "seguimiento con /panel"; comando = ""; }
     let o = s.obraId && this.obras.get(s.obraId);
     if (!o || !o.abierta) {
       asegurarCarpetas();
       o = {
         id: nuevoId("o-"), sesion: s.id, inicio: t0, ultima: t0, abierta: true, skills: new Set(),
-        titulo: corto(String(comando).replace(/^\/[\w-]+\s*/, "") || s.titulo || `obra con ${skill}`, 90),
+        titulo: corto(String(comando).replace(/^\/[\w-]+\s*/, "") || s.titulo || (s.cwd ? `sesión en ${basename(s.cwd)}` : `obra con ${skill}`), 90),
         proyecto: s.cwd ? basename(s.cwd) : "obra", comando: corto(comando, 160), pruebas: null, bitacora: [],
         esperadas: new Map(), abrirConAgente: false, paginaAbierta: false,
         asesor: this.configAsesor(s),
@@ -188,17 +197,19 @@ export class Panel {
       this.agente(cardId, {
         obraId: o.id, rol: "principal", nombre: s.titulo ? corto(s.titulo, 40) : "Agente principal", tipo: "sesión principal",
         modelo: s.modelo ? nombreModelo(s.modelo) : null, modeloConfirmado: !!s.modelo, esfuerzo: ev && ev.effort && ESFUERZOS.has(ev.effort.level) ? ev.effort.level : null,
-        estado: "trabajando", estadoTexto: null, inicio: t0, tarea: corto(comando, 4000), pidio: "Tú", sesion: s.id,
+        estado: "trabajando", estadoTexto: null, inicio: t0, tarea: corto(comando, 4000) || "Sesión seguida con /panel (la tarea es lo que le pidas en el chat).", pidio: "Tú", sesion: s.id,
       });
       this.guardarMarca(s.id, { obraId: o.id, rol: "principal", t: t0, offset, transcript: s.transcript || null });
       if (s.transcript) this.leerTranscript(cardId, s.transcript, offset);
-      this.emitir(this.snapshot());
+      this.emitir(this.snapshot()); // la página pasa a mostrar esta obra
       this.bitacora(o, cardId, `Se activó ${skill}`);
     } else this.bitacora(o, s.cardId, `Se activó ${skill}`);
     o.skills.add(skill);
     this.obraCambio(o);
     const { abren } = skillsActivas();
-    if (abren.includes(skill)) this.abrirSiHaceFalta(o); else o.abrirConAgente = true;
+    if (abren.includes(skill)) this.abrirSiHaceFalta(o);
+    else if (skill === "seguimiento con /panel") o.paginaAbierta = true; // la abre el propio comando /panel
+    else o.abrirConAgente = true;
   }
 
   abrirSiHaceFalta(o) {

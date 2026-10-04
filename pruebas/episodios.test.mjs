@@ -108,3 +108,29 @@ test("asesor: una consulta real se cuenta, con quién la pidió, resultado cifra
   assert.ok(o.asesor.tokens > 0, "tokens del asesor");
   assert.equal(o.asesor.estado, "reviso");
 });
+
+test("/panel empieza a seguir la sesión sin abrir otra pestaña", () => {
+  const { p, aperturas } = nuevoPanel();
+  p.ingerir({ hook_event_name: "SessionStart", session_id: "s-panel", cwd: "C:/proy/visor" });
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-panel", command_name: "panel-agentes:panel", prompt: "/panel-agentes:panel" });
+  const o = [...p.obras.values()][0];
+  assert.ok(o, "se creó la obra");
+  assert.equal(o.titulo, "sesión en visor");
+  assert.ok(o.skills.has("seguimiento con /panel"));
+  assert.equal(aperturas(), 0, "no abre otra pestaña: la abre el comando");
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-panel", tool_name: "Agent", tool_use_id: "tp1", tool_input: { description: "ayudante", prompt: "x" } });
+  assert.equal(aperturas(), 0, "tampoco al lanzar un agente");
+  assert.equal(p.agentes.get("t:tp1").nombre, "ayudante");
+});
+
+test("la página pasa a la obra viva cuando la que se ve ya terminó", () => {
+  const { p } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "sA", command_name: "director-de-obra", prompt: "/director-de-obra a" });
+  const obraA = p.visible;
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "sB", command_name: "director-de-obra", prompt: "/director-de-obra b" });
+  const obraB = p.visible;
+  assert.notEqual(obraA, obraB);
+  p.ingerir({ hook_event_name: "SessionEnd", session_id: "sB" });
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "sA", tool_name: "Agent", tool_use_id: "ta1", tool_input: { description: "x", prompt: "y" } });
+  assert.equal(p.visible, obraA, "vuelve a la obra con actividad");
+});
