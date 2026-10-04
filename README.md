@@ -172,3 +172,7 @@ GUIA.md                        guía de uso detallada
 - **Retraso en la terminal:** en `claude -p`, Claude Code escribe el registro del agente principal en tandas, así que se ve con retraso. En la app de escritorio es inmediato.
 - **Terminales hijas:** se reconocen por el nombre que anuncia la obra (`claude --name X`).
 - **Sin probar:** macOS y WSL.
+
+## Licencia
+
+MIT. Copyright (c) 2026 Christopher González Bustamante. Ver [LICENSE](LICENSE).
