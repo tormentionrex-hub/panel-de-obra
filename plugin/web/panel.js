@@ -108,6 +108,28 @@
       est, miniTerminal(a.id), span("caja__vermas", "ver más ▸"));
     return caja;
   }
+  // ── procesos en segundo plano (no son agentes) ─────────────
+  const VIVO = new Set(["running", "pending"]);
+  const PROC = { running: ["en marcha", null, "trabajando"], pending: ["en espera", "○", "espera"], completed: ["terminó", "✓", "termino"], failed: ["falló", "✗", "fallo"], killed: ["detenido", "■", "detenido"] };
+  function pintarProcesos() {
+    const l = estado.procesos || [];
+    const ul = $("lista-procesos");
+    if (!l.length) { ul.replaceChildren(el("li", { class: "porconfirmar", text: "ninguno por ahora" })); return; }
+    const tecnico = estado.modo === "tecnico";
+    ul.replaceChildren(...[...l].reverse().map((p) => {
+      const [txt, ic, clase] = PROC[p.estado] || [p.estado || "desconocido", "·", "espera"];
+      const vivo = VIVO.has(p.estado);
+      const icono = el("span", { class: "proceso__icono", "aria-hidden": "true", text: ic || GIRO[0] });
+      if (vivo && !quieto) icono.dataset.gira = "1";
+      const titulo = tecnico ? el("code", { class: "proceso__cmd", text: p.tecnico || p.simple || "—" }) : el("span", { class: "proceso__que", text: p.simple || "proceso en segundo plano" });
+      const extra = tecnico ? [p.descripcion, p.id].filter(Boolean).join(" · ") : (p.descripcion && p.descripcion !== p.simple ? p.descripcion : "");
+      const r = el("span", { class: "estado__reloj", "data-inicio": p.inicio || "" }); if (p.fin) r.dataset.fin = p.fin; reloj_(r);
+      return el("li", { class: "proceso", "data-estado": clase },
+        icono,
+        el("div", { class: "proceso__cuerpo" }, titulo, extra ? el("p", { class: "proceso__extra", text: extra }) : null),
+        el("p", { class: "proceso__meta" }, el("span", { class: "proceso__estado", text: txt }), " ", r, el("span", { class: "k", text: " · lo lanzó " }), el("span", { class: "actor", "data-rol": p.quienRol || "principal", text: p.quien || "—" })));
+    }));
+  }
   function rolPrincipal() {
     const s = (estado.obra && estado.obra.skills) || [];
     if (s.includes("director-de-obra")) return "dirige la obra + revisa";
@@ -178,6 +200,7 @@
     pintarRitmo();
     pintarActividad();
     pintarPruebas();
+    pintarProcesos();
     const subs = lista("subagente"), terms = lista("terminal");
     const mS = moda(subs.map((a) => a.modelo)), eS = moda(subs.map((a) => a.esfuerzo));
     $("rotulo-subagentes").replaceChildren(...["reparte a subagentes", mS ? el("span", null, " · ", el("b", { text: mS })) : null, eS ? " · " + ESFUERZO[eS] : null].filter(Boolean));
@@ -256,7 +279,8 @@
       par("subagentes", `${trab(subs)}/${subs.length}`, "c-subagente"),
       par("terminales", `${trab(terms)}/${terms.length}`, "c-terminal"),
       par("asesor", estado.asesor ? ASESOR_ESTADO[estado.asesor.estado] || estado.asesor.estado : "—", "c-asesor"),
-      par("permisos", String(permisos), "c-permiso"));
+      par("permisos", String(permisos), "c-permiso"),
+      par("en segundo plano", String((estado.procesos || []).filter((x) => VIVO.has(x.estado)).length), "c-actividad"));
   }
   function bitacoraNodo(b, nueva) {
     return el("li", { class: nueva ? "nueva" : null }, span("hora", hora(b.t)), el("span", { class: "actor", "data-rol": b.rol, text: b.actor }), span("texto", b.texto));
@@ -405,6 +429,7 @@
         estado.agentes = new Map((msg.agentes || []).map((a) => [a.id, a]));
         estado.lineas = new Map(Object.entries(msg.lineas || {}));
         estado.bitacora = (msg.bitacora || []).slice(-MAX_BITACORA); estado.asesor = msg.asesor || null;
+        estado.procesos = msg.procesos || [];
         estado.ritmo = []; estado.ultimoTotal = null;
         pintarBitacora(); ruta(); break;
       case "obra": estado.obra = msg.obra; pedirArbol(); break;
@@ -429,6 +454,12 @@
         ol.scrollTop = ol.scrollHeight; break;
       }
       case "asesor": estado.asesor = msg.asesor; pedirArbol(); break;
+      case "procesos": {
+        const antes = new Map((estado.procesos || []).map((p) => [p.id, p.estado]));
+        estado.procesos = msg.procesos || [];
+        for (const p of estado.procesos) if (antes.has(p.id) && antes.get(p.id) !== p.estado && !VIVO.has(p.estado)) anunciar(`Proceso en segundo plano: ${p.simple || "proceso"}, ${(PROC[p.estado] || [p.estado])[0]}`);
+        pintarProcesos(); pintarPie(); break;
+      }
     }
   }
   function conectar() {

@@ -1,10 +1,10 @@
 // Panel de Obra · estado de las obras: une los hooks (lo instantáneo) con los transcripts (lo que queda escrito)
 // y produce los mismos mensajes que consume la página (snapshot, obra, agente, linea, bitacora, asesor).
-import { writeFileSync, readFileSync, readdirSync, unlinkSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, readdirSync, unlinkSync, existsSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { DIR_OBRAS, LIMITES, skillsActivas, asegurarCarpetas, esSeguir } from "./config.mjs";
+import { DIR_OBRAS, DIR_PROYECTOS, LIMITES, skillsActivas, asegurarCarpetas, esSeguir } from "./config.mjs";
 import { Lector, buscarSubagente, leerMeta, nombreDeSesion, rutaPermitida, tamano } from "./transcripts.mjs";
 import { describir, resultado, nombreModelo } from "./interprete.mjs";
 import { corto, redactar } from "./redactar.mjs";
@@ -35,7 +35,7 @@ export class Panel {
     const o = this.obras.get(this.visible);
     const agentes = o ? [...this.agentes.values()].filter((a) => a.obraId === o.id) : [];
     const lineas = {}; for (const a of agentes) lineas[a.id] = this.lineas.get(a.id) || [];
-    return { tipo: "snapshot", modo: "real", servidorAhora: this.ahora(), obra: this.obraPublica(o), agentes, lineas, bitacora: o ? o.bitacora : [], asesor: o ? o.asesor : null };
+    return { tipo: "snapshot", modo: "real", servidorAhora: this.ahora(), obra: this.obraPublica(o), agentes, lineas, bitacora: o ? o.bitacora : [], asesor: o ? o.asesor : null, procesos: o ? this.listaProcesos(o) : [] };
   }
   enVista(obraId) { return obraId && obraId === this.visible; }
   tocar(o) { o.ultima = this.ahora(); }
@@ -108,6 +108,7 @@ export class Panel {
           this.agente(id, { estado: "termino", estadoTexto: null, permiso: null, resultado: corto(sinFormato(ev.last_assistant_message), LIMITES.textoMax), ahora: { simple: "Terminó", tecnico: "SubagentStop" } });
           this.bitacora(o, id, "Terminó" + (ev.last_assistant_message ? ": " + corto(sinFormato(ev.last_assistant_message), 90) : ""));
         }
+        this.segundoPlano(id, ev.background_tasks);
         const l = this.lectores.get(id); if (l) { l.leer(); setTimeout(() => { l.leer(); l.cerrar(); }, 4000).unref?.(); }
         break;
       }
@@ -133,6 +134,7 @@ export class Panel {
       case "Stop": {
         if (!this.agentes.get(s.cardId)) break;
         this.agente(s.cardId, { estado: "espera", estadoTexto: "terminó su turno; espera instrucciones", permiso: null, resultado: corto(sinFormato(ev.last_assistant_message), LIMITES.textoMax) });
+        this.segundoPlano(s.cardId, ev.background_tasks);
         this.bitacora(o, s.cardId, "Terminó su turno");
         break;
       }
@@ -149,6 +151,31 @@ export class Panel {
         break;
       }
     }
+  }
+
+  /** Procesos en segundo plano que informa Claude Code (sin los subagentes, que ya tienen su caja). */
+  segundoPlano(cardId, lista) {
+    const a = this.agentes.get(cardId); if (!Array.isArray(lista) || !a) return;
+    const o = this.obras.get(a.obraId); if (!o) return;
+    for (const b of lista) {
+      if (!b || b.type === "subagent" || b.agent_type) continue;
+      const id = o.procesosAlias.get(b.id) || "bg:" + b.id;
+      const previo = o.procesos.get(id);
+      this.proceso(o, id, previo ? { estado: b.status || previo.estado } : {
+        simple: corto(b.description || "Proceso en segundo plano", 110), tecnico: corto(`${b.type || "proceso"} · id ${b.id}`, 200),
+        descripcion: corto(b.description, 160), quien: a.nombre, quienRol: a.rol, inicio: this.ahora(), estado: b.status || "running",
+      });
+    }
+  }
+
+  /** Procesos en segundo plano de una obra (comandos lanzados en segundo plano, vistas previas…). */
+  listaProcesos(o) { return [...(o.procesos || new Map()).values()].sort((x, y) => (x.inicio || 0) - (y.inicio || 0)).slice(-30); }
+  proceso(o, id, cambios) {
+    const p = { id, ...(o.procesos.get(id) || {}), ...cambios };
+    if (["completed", "failed", "killed"].includes(p.estado) && !p.fin) p.fin = this.ahora();
+    o.procesos.set(id, p);
+    if (o.procesos.size > 60) o.procesos.delete(o.procesos.keys().next().value);
+    if (this.enVista(o.id)) this.emitir({ tipo: "procesos", procesos: this.listaProcesos(o) });
   }
 
   sesion(ev, t0) {
@@ -186,7 +213,7 @@ export class Panel {
         id: nuevoId("o-"), sesion: s.id, inicio: t0, ultima: t0, abierta: true, skills: new Set(),
         titulo: corto(String(comando).replace(/^\/[\w-]+\s*/, "") || s.titulo || (s.cwd ? `sesión en ${basename(s.cwd)}` : `obra con ${skill}`), 90),
         proyecto: s.cwd ? basename(s.cwd) : "obra", comando: corto(comando, 160), pruebas: null, bitacora: [],
-        esperadas: new Map(), abrirConAgente: false, paginaAbierta: false,
+        esperadas: new Map(), abrirConAgente: false, paginaAbierta: false, procesos: new Map(), procesosAlias: new Map(),
         asesor: this.configAsesor(s),
       };
       this.obras.set(o.id, o);
@@ -338,8 +365,10 @@ export class Panel {
           herr.set(b.id, { desc: d, input: { ...(b.input || {}), __tool: b.name } });
           cambios.ahora = { simple: d.simple, tecnico: d.tecnico };
           if (d.cuenta) cambios.contadores = { ...(cambios.contadores || a.contadores), [d.cuenta]: ((cambios.contadores || a.contadores)[d.cuenta] || 0) + 1 };
-          if (d.terminal) obra.esperadas.set(d.terminal, this.ahora());
+          if (d.terminal) obra.esperadas.set(d.terminal, t);
           if (["Agent", "Task"].includes(b.name) && !this.agentes.has("t:" + b.id)) this.nuevoSubagente(obra, b.id, b.input || {}, cardId, t);
+          const enFondo = (b.input && b.input.run_in_background === true) || /preview_start$/.test(b.name || "");
+          if (enFondo) this.proceso(obra, "tu:" + b.id, { simple: d.simple, tecnico: d.tecnico, descripcion: corto(b.input && (b.input.description || b.input.name || b.input.url), 160), quien: a.nombre, quienRol: a.rol, inicio: t, estado: "running" });
           this.linea(cardId, d.simple, d.tecnico, null, t);
         } else if (b.type === "server_tool_use" && b.name === "advisor") {
           const antes = (this.lineas.get(cardId) || []).slice(-1)[0];
@@ -374,6 +403,12 @@ export class Panel {
         if (b.type !== "tool_result") continue;
         const p = herr.get(b.tool_use_id); herr.delete(b.tool_use_id);
         const r = resultado(p ? p.desc : { simple: "esta acción" }, !!b.is_error, b.content, p ? p.input : {});
+        if (obra.procesos.has("tu:" + b.tool_use_id)) {
+          const texto = typeof b.content === "string" ? b.content : JSON.stringify(b.content || "");
+          const m = /(?:background with ID|ID):\s*([\w-]+)/i.exec(texto);
+          if (m) { obra.procesosAlias.set(m[1], "tu:" + b.tool_use_id); obra.procesos.delete("bg:" + m[1]); }
+          if (b.is_error) this.proceso(obra, "tu:" + b.tool_use_id, { estado: "failed" });
+        }
         const cambios = {};
         if (a.permiso) { cambios.permiso = null; cambios.estado = "trabajando"; cambios.estadoTexto = null; }
         if (r) {
@@ -388,6 +423,8 @@ export class Panel {
   }
 
   notificacionTarea(obra, taskId, status) {
+    const pid = obra.procesosAlias.get(taskId) || (obra.procesos.has("bg:" + taskId) ? "bg:" + taskId : null);
+    if (pid) this.proceso(obra, pid, { estado: status });
     const id = this.alias.get(taskId); if (!id) return;
     const a = this.agentes.get(id); if (!a) return;
     const estado = status === "completed" ? "termino" : status === "failed" ? "fallo" : status === "killed" ? "detenido" : null;
@@ -447,10 +484,34 @@ export class Panel {
     }
   }
 
+  /** Busca en ~/.claude/projects las sesiones cuyo nombre (agent-name) anunció una obra. */
+  buscarTerminales(ahora) {
+    const pendientes = [];
+    for (const o of this.obras.values()) if (o.abierta) for (const [nombre, t] of o.esperadas) if (ahora - t < 2 * 3600_000) pendientes.push({ o, nombre, t });
+    if (!pendientes.length) return;
+    const desde = Math.min(...pendientes.map((p) => p.t)) - 60_000;
+    let carpetas = []; try { carpetas = readdirSync(DIR_PROYECTOS); } catch { return; }
+    for (const c of carpetas) {
+      let archivos = []; try { archivos = readdirSync(join(DIR_PROYECTOS, c)).filter((f) => f.endsWith(".jsonl")); } catch { continue; }
+      for (const f of archivos) {
+        const id = f.slice(0, -6), ruta = join(DIR_PROYECTOS, c, f);
+        const s0 = this.sesiones.get(id); if (s0 && s0.obraId) continue;
+        let st; try { st = statSync(ruta); } catch { continue; }
+        if (st.mtimeMs < desde) continue;
+        const nombre = nombreDeSesion(ruta); if (!nombre) continue;
+        const p = pendientes.find((x) => x.nombre === nombre && st.mtimeMs >= x.t - 60_000); if (!p) continue;
+        p.o.esperadas.delete(nombre);
+        const s = this.sesion({ session_id: id, transcript_path: ruta }, st.birthtimeMs || st.mtimeMs);
+        this.crearTerminal(p.o, s, nombre, st.birthtimeMs || st.mtimeMs);
+      }
+    }
+  }
+
   // ── reloj: lee lo nuevo, asocia terminales, cierra obras inactivas ─
   tic() {
     for (const l of this.lectores.values()) l.leer();
     const ahora = this.ahora();
+    if (ahora - (this.ultimaBusqueda || 0) > 5000) { this.ultimaBusqueda = ahora; try { this.buscarTerminales(ahora); } catch { /* seguir */ } }
     this.candidatos = this.candidatos.filter((c) => {
       const s = this.sesiones.get(c.sesion); if (!s || s.obraId) return false;
       if (ahora - c.t > 10 * 60_000) return false;

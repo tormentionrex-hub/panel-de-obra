@@ -134,3 +134,62 @@ test("la página pasa a la obra viva cuando la que se ve ya terminó", () => {
   p.ingerir({ hook_event_name: "PreToolUse", session_id: "sA", tool_name: "Agent", tool_use_id: "ta1", tool_input: { description: "x", prompt: "y" } });
   assert.equal(p.visible, obraA, "vuelve a la obra con actividad");
 });
+
+test("procesos en segundo plano: los avisos de Stop crean su apartado, sin contar subagentes", () => {
+  const { p, msgs } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-bg", command_name: "director-de-obra", prompt: "/director-de-obra z" });
+  p.ingerir({ hook_event_name: "Stop", session_id: "s-bg", last_assistant_message: "lancé dos cosas", background_tasks: [
+    { id: "b1", type: "local_bash", status: "running", description: "Launch journey-integrador return round 3 headless" },
+    { id: "b2", type: "local_bash", status: "running", description: "journey-visor-dev" },
+    { id: "a9", type: "subagent", status: "running", description: "un subagente", agent_type: "general-purpose" } ] });
+  const o = p.obras.get(p.agentes.get("p:s-bg").obraId);
+  assert.equal(p.listaProcesos(o).length, 2, "sin contar los subagentes");
+  assert.equal(p.listaProcesos(o)[0].quien, p.agentes.get("p:s-bg").nombre);
+  p.notificacionTarea(o, "b1", "completed");
+  const b1 = p.listaProcesos(o).find((x) => x.id === "bg:b1");
+  assert.equal(b1.estado, "completed"); assert.ok(b1.fin, "se congela su tiempo");
+  assert.ok(msgs.some((m) => m.tipo === "procesos"));
+  assert.equal(p.snapshot().procesos.length, 2);
+});
+
+test("procesos en segundo plano: un comando lanzado en segundo plano se explica en simple y en técnico", () => {
+  const dir = join(homedir(), ".claude", "projects", "panel-prueba-unitaria"); mkdirSync(dir, { recursive: true });
+  const tr = join(dir, "sesion-fondo.jsonl"); writeFileSync(tr, "");
+  const { p } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-cmd", command_name: "director-de-obra", prompt: "/director-de-obra w", transcript_path: tr });
+  const lineas = [
+    { type: "assistant", message: { id: "m1", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "tuA", name: "Bash", input: { command: "npm run dev", description: "Levantar el servidor de desarrollo", run_in_background: true } }] } },
+    { type: "assistant", message: { id: "m2", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "tuB", name: "Bash", input: { command: "ls" } }] } },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tuA", content: "Command running in background with ID: bx7" }] } },
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tuB", content: "a b" }] } },
+  ];
+  writeFileSync(tr, lineas.map((x) => JSON.stringify(x)).join("\n") + "\n", { flag: "a" });
+  p.tic();
+  const o = p.obras.get(p.agentes.get("p:s-cmd").obraId);
+  const l = p.listaProcesos(o);
+  assert.equal(l.length, 1, "solo el comando en segundo plano");
+  assert.equal(l[0].estado, "running");
+  assert.match(l[0].tecnico, /npm run dev/);
+  assert.doesNotMatch(l[0].simple, /npm/, "la versión simple no lleva el comando");
+  p.ingerir({ hook_event_name: "Stop", session_id: "s-cmd", background_tasks: [{ id: "bx7", type: "local_bash", status: "running", description: "Levantar el servidor de desarrollo" }] });
+  assert.equal(p.listaProcesos(o).length, 1, "el aviso de Stop no lo duplica");
+  p.notificacionTarea(o, "bx7", "failed");
+  assert.equal(p.listaProcesos(o)[0].estado, "failed");
+});
+
+test("una terminal anunciada se encuentra buscando en los registros, aunque su arranque no se haya escuchado", () => {
+  const dir = join(homedir(), ".claude", "projects", "panel-prueba-unitaria-hija");
+  mkdirSync(dir, { recursive: true });
+  const ruta = join(dir, "sesion-hija-123.jsonl");
+  writeFileSync(ruta, JSON.stringify({ type: "custom-title", customTitle: "hija-buscada" }) + "\n" + JSON.stringify({ type: "agent-name", agentName: "hija-buscada" }) + "\n");
+  try {
+    const { p } = nuevoPanel();
+    p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-madre", command_name: "subagentes", prompt: "/subagentes x" });
+    const o = p.obras.get(p.visible);
+    o.esperadas.set("hija-buscada", Date.now() - 5000);
+    p.tic();
+    const t = p.agentes.get("s:sesion-hija-123");
+    assert.ok(t, "se creó la tarjeta de la terminal");
+    assert.equal(t.rol, "terminal"); assert.equal(t.nombre, "hija-buscada");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

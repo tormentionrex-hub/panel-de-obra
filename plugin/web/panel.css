@@ -233,6 +233,27 @@ a.caja:hover { background: #22262D; }
 @keyframes parpadeo { 50% { opacity: 0; } }
 
 /* ── pantallas medianas y pequeñas: todo en una columna ─── */
+/* procesos en segundo plano: apartado propio, color de actividad (verde) para separarlos de los agentes */
+.marco--procesos { margin-top: var(--e-24); border-color: var(--actividad); }
+.marco--procesos .marco__titulo { color: var(--actividad); font-weight: 700; }
+.procesos__nota { margin: 0 0 var(--e-8); color: var(--tenue); font-size: var(--t-12); }
+.procesos { list-style: none; margin: 0; padding: 0; max-height: 15em; overflow: auto; }
+.proceso { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto; gap: var(--e-4) var(--e-12); align-items: baseline; padding: var(--e-4) 0; border-top: 1px dashed var(--borde-tenue); }
+.proceso:first-child { border-top: 0; }
+.proceso__icono { text-align: center; color: var(--tenue); }
+.proceso[data-estado="trabajando"] .proceso__icono, .proceso[data-estado="trabajando"] .proceso__estado { color: var(--trabajando); }
+.proceso[data-estado="termino"] .proceso__icono, .proceso[data-estado="termino"] .proceso__estado { color: var(--termino); }
+.proceso[data-estado="fallo"] .proceso__icono, .proceso[data-estado="fallo"] .proceso__estado { color: var(--fallo); }
+.proceso[data-estado="termino"] .proceso__que, .proceso[data-estado="detenido"] .proceso__que { color: var(--tenue); }
+.proceso__que { font-weight: 700; }
+.proceso__cmd { font-family: var(--mono); font-size: var(--t-13); color: var(--actividad); overflow-wrap: anywhere; }
+.proceso__extra { margin: 2px 0 0; color: var(--tenue); font-size: var(--t-12); overflow-wrap: anywhere; }
+.proceso__meta { margin: 0; white-space: nowrap; font-size: var(--t-12); text-align: right; }
+.proceso__meta .k { color: var(--tenue); }
+.proceso__meta .actor { font-weight: 700; }
+.proceso__estado { font-weight: 700; }
+.c-actividad { color: var(--actividad); }
+
 @media (max-width: 1020px) {
   .tablero { grid-template-columns: minmax(0, 1fr); }
   .conectores { display: none; }
@@ -253,6 +274,8 @@ a.caja:hover { background: #22262D; }
   .log li { grid-template-columns: 9ch minmax(0, 1fr); }
   .log li .texto { grid-column: 1 / -1; }
   .act__fila { grid-template-columns: 12ch minmax(0, 1fr) 4ch; }
+  .proceso { grid-template-columns: 1.4em minmax(0, 1fr); }
+  .proceso__meta { grid-column: 2; text-align: left; white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -260,3 +283,5 @@ a.caja:hover { background: #22262D; }
 }
 
 .detalle__nombre:focus, .detalle__nombre:focus-visible { outline: none; }
+
+/* procesos en segundo plano dentro de una caja */

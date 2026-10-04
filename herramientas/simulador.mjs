@@ -26,13 +26,13 @@ const ARCHIVOS = { "/": "index.html", "/index.html": "index.html", "/panel.css":
 // ── estado (mismo modelo que mandará el servidor real) ──────
 let st;
 function reiniciar() {
-  st = { obra: null, agentes: new Map(), lineas: new Map(), bitacora: [], asesor: { modelo: "Opus 5.5", estado: "espera", consultas: 0, tokens: 0, ultima: null, lista: [], nota: "Con Opus 5.5 el consejo llega cifrado: Claude Code no deja leer su texto." } };
+  st = { obra: null, agentes: new Map(), lineas: new Map(), bitacora: [], procesos: new Map(), asesor: { modelo: "Opus 5.5", estado: "espera", consultas: 0, tokens: 0, ultima: null, lista: [], nota: "Con Opus 5.5 el consejo llega cifrado: Claude Code no deja leer su texto." } };
 }
 const clientes = new Set();
 function emitir(msg) { const s = `data: ${JSON.stringify(msg)}\n\n`; for (const c of clientes) c.write(s); }
 function snapshot() {
   return { tipo: "snapshot", modo: "simulacion", servidorAhora: Date.now(), obra: st.obra, agentes: [...st.agentes.values()],
-    lineas: Object.fromEntries(st.lineas), bitacora: st.bitacora, asesor: st.asesor };
+    lineas: Object.fromEntries(st.lineas), bitacora: st.bitacora, asesor: st.asesor, procesos: [...st.procesos.values()] };
 }
 
 // ── ayudas del guion ────────────────────────────────────────
@@ -61,6 +61,11 @@ function bitacora(id, texto) {
     : { t: Date.now(), actor: a ? a.nombre : id, rol: a ? ROL_BITACORA[a.rol] : id, texto };
   st.bitacora.push(item);
   emitir({ tipo: "bitacora", item });
+}
+function proceso(id, cambios) {
+  const p = { id, ...(st.procesos.get(id) || {}), ...cambios };
+  if (["completed", "failed", "killed"].includes(p.estado) && !p.fin) p.fin = Date.now();
+  st.procesos.set(id, p); emitir({ tipo: "procesos", procesos: [...st.procesos.values()] });
 }
 function asesor(cambios) { st.asesor = { ...st.asesor, ...cambios }; emitir({ tipo: "asesor", asesor: st.asesor }); }
 function consulta(quienId, antes, tokens, momento = null) {
@@ -97,6 +102,11 @@ const GUION = [
     bitacora(P, 'Le pidió ayuda a "constructor-pedidos"');
   }],
   [11.5, () => agente(C, { modelo: "Sonnet 5.5", modeloConfirmado: true })],
+  [8, () => proceso("tu:dev", { simple: "Levantando la aplicación para poder probarla", tecnico: "Bash: npm run dev", descripcion: "Servidor de desarrollo en el puerto 5173", quien: "Director de obra", quienRol: "principal", inicio: Date.now(), estado: "running" })],
+  [14, () => proceso("tu:e2e", { simple: "Corriendo las pruebas de punta a punta", tecnico: "Bash: npx playwright test e2e/pedidos.spec.ts", descripcion: "Pruebas del flujo completo de pedidos", quien: "constructor-pedidos", quienRol: "subagente", inicio: Date.now(), estado: "running" })],
+  [40, () => proceso("tu:e2e", { estado: "completed" })],
+  [44, () => proceso("tu:mig", { simple: "Preparando la base de datos de prueba", tecnico: "Bash: node scripts/migrar.mjs --entorno prueba", descripcion: "Migración de la base de prueba", quien: "backend-pedidos", quienRol: "terminal", inicio: Date.now(), estado: "running" })],
+  [52, () => proceso("tu:mig", { estado: "failed" })],
   [12, () => {
     linea(P, 'Pidiéndole ayuda a "lector-docs"', 'Agent(subagent_type: lector, description: "lector-docs")');
     agente(L, { rol: "subagente", nombre: "lector-docs", tipo: "lector", modelo: "Sonnet 5.5", modeloConfirmado: false, esfuerzo: "low", estado: "trabajando",
