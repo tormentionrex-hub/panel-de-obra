@@ -239,7 +239,7 @@
     const max = Math.max(1, ...filas.map((f) => f[1]));
     const permisos = [...estado.agentes.values()].filter((a) => a.estado === "permiso").length;
     $("caja-actividad").replaceChildren(el("div", { class: "caja", "data-rol": "actividad" },
-      el("p", { class: "act__cab" }, span(null, "OBRA · actividad"), el("span", null, span("k", "agentes "), String(estado.agentes.size))),
+      el("p", { class: "act__cab" }, span(null, "OBRA · actividad"), el("span", null, span("k", "agentes "), String(estado.agentes.size), span("k", " · "), String([...estado.agentes.values()].filter((a) => a.estado === "trabajando").length), span("k", " trabajando"))),
       ...filas.map(([n, v, tipo]) => el("p", { class: "act__fila", "data-tipo": tipo },
         span(null, n), el("span", { class: "act__barra", "data-tipo": tipo, "aria-hidden": "true" }, barraAncho(v / max)), span("n", String(v)))),
       el("p", { class: "act__nota" }, permisos ? `◆ ${permisos} espera${permisos > 1 ? "n" : ""} tu permiso` : "sin permisos pendientes")));
