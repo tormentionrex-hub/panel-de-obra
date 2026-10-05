@@ -193,3 +193,77 @@ test("una terminal anunciada se encuentra buscando en los registros, aunque su a
     assert.equal(t.rol, "terminal"); assert.equal(t.nombre, "hija-buscada");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("una terminal que terminó hace horas se marca terminada, con lo que tardó y su autoevaluación", () => {
+  const dir = join(homedir(), ".claude", "projects", "panel-prueba-unitaria"); mkdirSync(dir, { recursive: true });
+  const tr = join(dir, "sesion-terminal-vieja.jsonl");
+  const t0 = Date.now() - 10 * 3600_000, t1 = t0 + 2 * 3600_000 + 5 * 60_000; // empezó hace 10 h y trabajó 2 h 05 min
+  const lineas = [
+    { type: "user", timestamp: new Date(t0).toISOString(), message: { content: "Eres journey-integrador. Integra el flujo." } },
+    { type: "assistant", timestamp: new Date(t0 + 60_000).toISOString(), message: { id: "x1", model: "claude-sonnet-5", stop_reason: "tool_use", content: [{ type: "tool_use", id: "k1", name: "Bash", input: { command: "npm test" } }] } },
+    { type: "user", timestamp: new Date(t0 + 120_000).toISOString(), message: { content: [{ type: "tool_result", tool_use_id: "k1", content: "ok" }] } },
+    { type: "assistant", timestamp: new Date(t1).toISOString(), message: { id: "x2", model: "claude-sonnet-5", stop_reason: "end_turn", content: [{ type: "text", text: "Listo.\n\nAUTOEVALUACIÓN: 7/10\n- Bien: integré el flujo y las pruebas pasan.\n- Mejorar: tardé en encontrar la ruta del tablero." }] } },
+  ];
+  writeFileSync(tr, lineas.map((x) => JSON.stringify(x)).join("\n") + "\n");
+  const { p } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-orq", command_name: "subagentes", prompt: "/subagentes x" });
+  const o = p.obras.get(p.agentes.get("p:s-orq").obraId);
+  p.crearTerminal(o, { id: "s-term", transcript: tr }, "journey-integrador", Date.now());
+  const recien = p.agentes.get("s:s-term");
+  assert.equal(recien.estado, "trabajando", "al releer, todavía no se sabe");
+  p.tic();
+  const a = p.agentes.get("s:s-term");
+  assert.equal(a.estado, "termino");
+  assert.equal(a.inicio, t0, "empezó con su primera línea");
+  assert.equal(a.fin, t1, "terminó con su última línea, no al releerla");
+  assert.equal(a.evaluacion.nota, 7);
+  assert.match(a.evaluacion.mejorar, /ruta del tablero/);
+  assert.ok(p.obras.get(a.obraId).bitacora.some((b) => /tardó 2 h 05 min · se puso 7\/10/.test(b.texto)));
+  const guardadas = readFileSync(join(datos, "evaluaciones.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(guardadas.filter((g) => g.agente === "journey-integrador").length, 1);
+  assert.match(readFileSync(join(datos, "lecciones.md"), "utf8"), /journey-integrador .*7\/10.*Mejorar: tardé/);
+  p.cerrarPorSilencio(Date.now()); p.guardarEvaluacion({ ...a, evaluacionGuardada: false });
+  assert.equal(readFileSync(join(datos, "evaluaciones.jsonl"), "utf8").trim().split("\n").length, guardadas.length, "no se repite");
+});
+
+test("una terminal que dejó de escribir a mitad de algo queda «sin señales», nunca «trabajando» por horas", () => {
+  const dir = join(homedir(), ".claude", "projects", "panel-prueba-unitaria"); mkdirSync(dir, { recursive: true });
+  const tr = join(dir, "sesion-terminal-muda.jsonl");
+  const t0 = Date.now() - 3 * 3600_000;
+  writeFileSync(tr, JSON.stringify({ type: "assistant", timestamp: new Date(t0).toISOString(), message: { id: "y1", model: "claude-sonnet-5", stop_reason: "tool_use", content: [{ type: "tool_use", id: "k9", name: "Bash", input: { command: "npm run build" } }] } }) + "\n");
+  const { p } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-orq2", command_name: "subagentes", prompt: "/subagentes y" });
+  p.crearTerminal(p.obras.get(p.agentes.get("p:s-orq2").obraId), { id: "s-muda", transcript: tr }, "muda", Date.now());
+  p.tic();
+  const a = p.agentes.get("s:s-muda");
+  assert.equal(a.estado, "detenido"); assert.match(a.estadoTexto, /sin señales desde las/); assert.equal(a.fin, t0);
+  assert.equal(a.evaluacion, undefined, "sin nota inventada");
+});
+
+test("autoevaluación: se lee con o sin negritas, y sin la línea no hay nota", async () => {
+  const { autoevaluacion, duracionTexto } = await import("../plugin/servidor/interprete.mjs");
+  assert.deepEqual(autoevaluacion("**Autoevaluación:** 9/10\n**Bien:** todo verde\n**Mejorar:** nada"), { nota: 9, bien: "todo verde", mejorar: "nada" });
+  assert.equal(autoevaluacion("terminé, 9/10 de las pruebas pasan"), null);
+  assert.equal(autoevaluacion("AUTOEVALUACIÓN: 0/10"), null);
+  assert.equal(duracionTexto(45_000), "45 s"); assert.equal(duracionTexto(12 * 60_000), "12 min"); assert.equal(duracionTexto(7500_000), "2 h 05 min");
+});
+
+test("subagente en segundo plano: el aviso de fin en cola lo cierra a la hora real, con su nota", () => {
+  const dir = join(homedir(), ".claude", "projects", "panel-prueba-unitaria"); mkdirSync(dir, { recursive: true });
+  const tr = join(dir, "sesion-cola.jsonl"); writeFileSync(tr, "");
+  const { p } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-cola", command_name: "director-de-obra", prompt: "/director-de-obra q", transcript_path: tr });
+  const t0 = Date.now() - 5 * 3600_000, t1 = t0 + 40 * 60_000;
+  const aviso = "<task-notification>\n<task-id>agX1</task-id>\n<tool-use-id>tuX</tool-use-id>\n<status>completed</status>\n<summary>Agent done</summary>\n<result>Revisé la ola 7.\n\nAUTOEVALUACIÓN: 8/10\nBien: encontré dos fallos reales.\nMejorar: leer el contrato antes.</result>\n</task-notification>";
+  const lineas = [
+    { type: "assistant", timestamp: new Date(t0).toISOString(), message: { id: "q1", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "tuX", name: "Agent", input: { description: "Lente ola 7", subagent_type: "obra-lente", prompt: "revisa", run_in_background: true } }] } },
+    { type: "user", timestamp: new Date(t0 + 1000).toISOString(), toolUseResult: { status: "async_launched", agentId: "agX1" }, message: { content: [{ type: "tool_result", tool_use_id: "tuX", content: "lanzado" }] } },
+    { type: "queue-operation", operation: "enqueue", timestamp: new Date(t1).toISOString(), content: aviso },
+  ];
+  writeFileSync(tr, lineas.map((x) => JSON.stringify(x)).join("\n") + "\n", { flag: "a" });
+  p.tic();
+  const a = p.agentes.get("t:tuX");
+  assert.equal(a.estado, "termino");
+  assert.equal(a.fin, t1, "a la hora del aviso");
+  assert.equal(a.evaluacion.nota, 8); assert.match(a.evaluacion.mejorar, /contrato/);
+});

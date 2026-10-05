@@ -233,6 +233,13 @@ a.caja:hover { background: #22262D; }
 @keyframes parpadeo { 50% { opacity: 0; } }
 
 /* ── pantallas medianas y pequeñas: todo en una columna ─── */
+/* autoevaluación al terminar: verde 8–10, amarillo 5–7, rojo 1–4 (siempre con el número, no solo color) */
+.caja__nota { margin: 2px 0 0; font-size: var(--t-12); }
+.caja__nota .k { color: var(--tenue); }
+.caja__nota[data-nivel="alta"] b { color: var(--termino); }
+.caja__nota[data-nivel="media"] b { color: var(--permiso); }
+.caja__nota[data-nivel="baja"] b { color: var(--fallo); }
+
 /* procesos en segundo plano: apartado propio, color de actividad (verde) para separarlos de los agentes */
 .marco--procesos { margin-top: var(--e-24); border-color: var(--actividad); }
 .marco--procesos .marco__titulo { color: var(--actividad); font-weight: 700; }

@@ -24,7 +24,10 @@ function borrar(ruta, nombre) {
   else console.log(`⚠ borré ${nombre} salvo lo que está en uso:\n  ${quedan.join("\n  ")}\n  Cierra la sesión de Claude Code que usa esa carpeta y vuelve a correr este comando.`);
 }
 
-// Primero se deshacen los cambios del asesor en tus skills (sus copias viven en la carpeta de datos que se borra después).
+// Primero se quita la sección de autoevaluación y después se deshacen los cambios del asesor en tus skills
+// (sus copias viven en la carpeta de datos que se borra después).
+try { console.log(execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "autoevaluacion.mjs"), "off"], { encoding: "utf8" }).trim()); }
+catch (e) { console.log("⚠ no pude quitar la autoevaluación de tus skills: " + e.message); process.exit(1); }
 if (existsSync(join(DATOS, "copias-asesor"))) {
   try { console.log(execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "asesor.mjs"), "off"], { encoding: "utf8" }).trim()); }
   catch (e) { console.log("⚠ no pude revertir el asesor; no borro tus copias: " + e.message); process.exit(1); }

@@ -84,7 +84,16 @@
     nodo.replaceChildren(icono, span(null, a.estadoTexto || info.texto), reloj);
     reloj_(reloj);
   }
-  function reloj_(r) { const i = Number(r.dataset.inicio), f = Number(r.dataset.fin) || null; r.textContent = i ? "· " + duracion((f || ahora()) - i) : ""; }
+  function reloj_(r) { const i = Number(r.dataset.inicio), f = Number(r.dataset.fin) || null; r.textContent = !i ? "" : f ? "· tardó " + tardo(f - i) : "· " + duracion(ahora() - i); }
+  function tardo(ms) { const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h} h ${String(m).padStart(2, "0")} min` : m ? `${m} min` : `${s} s`; }
+  // nota que la propia IA se puso al terminar (nunca la pone el panel)
+  function notaNodo(a) {
+    if (a.rol === "principal") return null;
+    const e = a.evaluacion;
+    if (!e) return a.fin ? el("p", { class: "caja__nota" }, span("porconfirmar", "sin autoevaluación")) : null;
+    return el("p", { class: "caja__nota", "data-nivel": e.nota >= 8 ? "alta" : e.nota >= 5 ? "media" : "baja", title: [e.bien && "Bien: " + e.bien, e.mejorar && "Mejorar: " + e.mejorar].filter(Boolean).join("\n") },
+      span("k", "autoevaluación "), el("b", { text: `${e.nota}/10` }));
+  }
 
   // ── cajas de agentes ───────────────────────────────────────
   function miniTerminal(id) {
@@ -105,7 +114,7 @@
     const caja = el("a", { class: "caja", href: "#/agente/" + encodeURIComponent(a.id), "data-rol": a.rol, "data-estado": a.estado, "data-id": a.id, "aria-label": `Ver más sobre ${a.nombre}` },
       ...cuerpo,
       el("p", { class: "caja__ahora", title: texto(a.ahora) }, texto(a.ahora) || "—"),
-      est, miniTerminal(a.id), span("caja__vermas", "ver más ▸"));
+      est, notaNodo(a), miniTerminal(a.id), span("caja__vermas", "ver más ▸"));
     return caja;
   }
   // ── procesos en segundo plano (no son agentes) ─────────────
@@ -366,6 +375,13 @@
     pintarEstado($("detalle-estado"), a);
     const dl = $("detalle-datos"); dl.replaceChildren();
     const filas = [["tarea que le dieron", null], ["la pidió", a.pidio || "—"], ["tipo", a.tipo || "—"], ["empezó", a.inicio ? hora(a.inicio) : "—"], ["tokens usados", a.tokens == null ? "desconocido" : k(a.tokens)]];
+    if (a.inicio && a.fin) filas.push(["tardó", `${tardo(a.fin - a.inicio)} (de ${hora(a.inicio)} a ${hora(a.fin)})`]);
+    if (a.rol !== "principal") {
+      const e = a.evaluacion;
+      filas.push(["autoevaluación", e ? `${e.nota}/10 · se la puso la propia IA` : a.fin ? "no se autoevaluó" : "al terminar"]);
+      if (e && e.bien) filas.push(["le salió bien", e.bien]);
+      if (e && e.mejorar) filas.push(["para mejorar", e.mejorar]);
+    }
     for (const [t, v] of filas) { dl.append(el("dt", { text: t })); dl.append(v === null ? el("dd", { class: "tarea", text: a.tarea || "desconocida" }) : el("dd", { text: v })); }
     const c = a.contadores || {}, hecho = [];
     const pl = (n, s, p) => `${n} ${n > 1 ? p : s}`;

@@ -110,3 +110,24 @@ export function nombreModelo(id) {
   if (/^(opus|sonnet|haiku|fable)$/.test(s)) return cap(s);
   return String(id);
 }
+
+/** «45 s», «12 min», «2 h 05 min». */
+export function duracionTexto(ms) {
+  if (!(ms >= 0)) return "—";
+  const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  if (h) return h + " h " + String(m).padStart(2, "0") + " min";
+  if (m) return m + " min";
+  return s + " s";
+}
+
+/** Lee la autoevaluación que la propia IA escribe al terminar:
+ *  «AUTOEVALUACIÓN: 7/10», seguida (opcionalmente) de «Bien: …» y «Mejorar: …». Nunca se inventa: sin esa línea, null. */
+export function autoevaluacion(texto) {
+  if (typeof texto !== "string") return null;
+  const m = /AUTOEVALUACI[OÓ]N\**\s*[:：\-–—]?\s*\**\s*(\d{1,2})\s*\/\s*10/i.exec(texto);
+  if (!m) return null;
+  const nota = Number(m[1]); if (nota < 1 || nota > 10) return null;
+  const resto = texto.slice(m.index);
+  const campo = (nombre) => { const r = new RegExp("(?:^|\\n)\\s*[-*•]?\\s*\\**" + nombre + "\\**\\s*[:：]\\s*\\**\\s*(.+)", "i").exec(resto); return r ? corto(r[1].replace(/\*\*/g, "").trim(), 240) : null; };
+  return { nota, bien: campo("bien"), mejorar: campo("mejorar") };
+}

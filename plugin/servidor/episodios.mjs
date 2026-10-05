@@ -1,12 +1,19 @@
 // Panel de Obra · estado de las obras: une los hooks (lo instantáneo) con los transcripts (lo que queda escrito)
 // y produce los mismos mensajes que consume la página (snapshot, obra, agente, linea, bitacora, asesor).
-import { writeFileSync, readFileSync, readdirSync, unlinkSync, existsSync, statSync } from "node:fs";
+import { writeFileSync, readFileSync, readdirSync, unlinkSync, existsSync, statSync, appendFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { DIR_OBRAS, DIR_PROYECTOS, LIMITES, skillsActivas, asegurarCarpetas, esSeguir } from "./config.mjs";
+import { DATOS, DIR_OBRAS, DIR_PROYECTOS, LIMITES, skillsActivas, asegurarCarpetas, esSeguir } from "./config.mjs";
 import { Lector, buscarSubagente, leerMeta, nombreDeSesion, rutaPermitida, tamano } from "./transcripts.mjs";
-import { describir, resultado, nombreModelo } from "./interprete.mjs";
+import { describir, resultado, nombreModelo, duracionTexto, autoevaluacion } from "./interprete.mjs";
+const ARCHIVO_EVALUACIONES = join(DATOS, "evaluaciones.jsonl");
+const ARCHIVO_LECCIONES = join(DATOS, "lecciones.md");
+const horaCorta = (t) => new Date(t).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", hour12: false });
+// Una terminal o un subagente cuyo último mensaje cerró el turno y que no escribe nada más en este tiempo, terminó.
+const SILENCIO_FIN_MS = 3 * 60_000;
+// Sin cerrar el turno y sin escribir nada en este tiempo: se muestra «sin señales», nunca «trabajando».
+const SILENCIO_PERDIDO_MS = 30 * 60_000;
 import { corto, redactar } from "./redactar.mjs";
 
 const ESFUERZOS = new Set(["low", "medium", "high", "xhigh", "max"]);
@@ -48,6 +55,7 @@ export class Panel {
     if (/^haiku/i.test(a.modelo || "") && !a.esfuerzo) a.esfuerzo = "no-aplica";
     if (["trabajando", "permiso", "espera"].includes(a.estado)) a.fin = null;
     this.agentes.set(cardId, a);
+    if (a.evaluacion && a.fin && !a.evaluacionGuardada) this.guardarEvaluacion(a);
     const o = this.obras.get(a.obraId); if (o) this.tocar(o);
     // Si la obra que se ve ya terminó (su principal se cerró o la obra se cerró) y otra tiene actividad, la página cambia a esa.
     if (a.obraId && !this.enVista(a.obraId) && ["trabajando", "permiso"].includes(a.estado)) {
@@ -105,8 +113,9 @@ export class Panel {
         const id = this.alias.get(ev.agent_id); if (!id) break;
         const a = this.agentes.get(id);
         if (a && !["fallo", "detenido"].includes(a.estado)) {
-          this.agente(id, { estado: "termino", estadoTexto: null, permiso: null, resultado: corto(sinFormato(ev.last_assistant_message), LIMITES.textoMax), ahora: { simple: "Terminó", tecnico: "SubagentStop" } });
-          this.bitacora(o, id, "Terminó" + (ev.last_assistant_message ? ": " + corto(sinFormato(ev.last_assistant_message), 90) : ""));
+          const ev2 = autoevaluacion(ev.last_assistant_message);
+          this.agente(id, { estado: "termino", estadoTexto: null, permiso: null, resultado: corto(sinFormato(ev.last_assistant_message), LIMITES.textoMax), ahora: { simple: "Terminó", tecnico: "SubagentStop" }, ...(ev2 ? { evaluacion: ev2 } : {}) });
+          this.bitacora(o, id, this.textoFin(id) + (ev.last_assistant_message ? ": " + corto(sinFormato(ev.last_assistant_message), 90) : ""));
         }
         this.segundoPlano(id, ev.background_tasks);
         const l = this.lectores.get(id); if (l) { l.leer(); setTimeout(() => { l.leer(); l.cerrar(); }, 4000).unref?.(); }
@@ -133,7 +142,8 @@ export class Panel {
       }
       case "Stop": {
         if (!this.agentes.get(s.cardId)) break;
-        this.agente(s.cardId, { estado: "espera", estadoTexto: "terminó su turno; espera instrucciones", permiso: null, resultado: corto(sinFormato(ev.last_assistant_message), LIMITES.textoMax) });
+        const ev2 = autoevaluacion(ev.last_assistant_message);
+        this.agente(s.cardId, { estado: "espera", estadoTexto: "terminó su turno; espera instrucciones", permiso: null, resultado: corto(sinFormato(ev.last_assistant_message), LIMITES.textoMax), ...(ev2 ? { evaluacion: ev2 } : {}) });
         this.segundoPlano(s.cardId, ev.background_tasks);
         this.bitacora(o, s.cardId, "Terminó su turno");
         break;
@@ -340,6 +350,11 @@ export class Panel {
     const a = this.agentes.get(cardId); if (!a) return;
     const obra = this.obras.get(a.obraId); if (!obra) return;
     const t = o.timestamp ? Date.parse(o.timestamp) || this.ahora() : this.ahora();
+    if (o.type === "assistant" || o.type === "user") {
+      if (!(a.ultimaT > t)) a.ultimaT = t;
+      if (a.rol === "terminal" && o.timestamp && t < (a.inicio || Infinity)) a.inicio = t; // empezó cuando escribió su primera línea
+      a.finTurno = o.type === "assistant" && !!o.message && o.message.stop_reason === "end_turn";
+    }
     if (o.type === "agent-name" && a.rol === "terminal" && o.agentName) { if (a.nombre !== o.agentName) this.agente(cardId, { nombre: corto(o.agentName, 40) }); return; }
     if (o.type === "system" && o.subtype === "compact_boundary") { this.linea(cardId, "Resumió su memoria para seguir", "compact_boundary", null, t); return; }
     const herr = this.herramientas.get(cardId) || new Map(); this.herramientas.set(cardId, herr);
@@ -357,7 +372,7 @@ export class Panel {
         for (const [i, it] of (u.iterations || []).entries()) if (it.type === "advisor_message") this.tokensAsesor(obra, `${m.id}:${i}`, (it.input_tokens || 0) + (it.cache_creation_input_tokens || 0) + (it.output_tokens || 0));
       }
       if (a.permiso && t > (a.estadoT || 0)) { cambios.permiso = null; cambios.estado = "trabajando"; cambios.estadoTexto = null; }
-      else if ((a.estado === "espera" || a.estado === "termino") && t > (a.estadoT || 0) + 1500) { cambios.estado = "trabajando"; cambios.estadoTexto = null; }
+      else if ((a.estado === "espera" || a.estado === "termino" || a.porSilencio) && t > (a.estadoT || 0) + 1500) { cambios.estado = "trabajando"; cambios.estadoTexto = null; cambios.porSilencio = false; }
       for (const b of Array.isArray(m.content) ? m.content : []) {
         if (b.type === "tool_use") {
           if (herr.has(b.id)) continue;
@@ -370,6 +385,8 @@ export class Panel {
           const enFondo = (b.input && b.input.run_in_background === true) || /preview_start$/.test(b.name || "");
           if (enFondo) this.proceso(obra, "tu:" + b.id, { simple: d.simple, tecnico: d.tecnico, descripcion: corto(b.input && (b.input.description || b.input.name || b.input.url), 160), quien: a.nombre, quienRol: a.rol, inicio: t, estado: "running" });
           this.linea(cardId, d.simple, d.tecnico, null, t);
+        } else if (b.type === "text" && /AUTOEVALUACI/i.test(b.text || "")) {
+          const ev2 = autoevaluacion(b.text); if (ev2) cambios.evaluacion = ev2;
         } else if (b.type === "server_tool_use" && b.name === "advisor") {
           const antes = (this.lineas.get(cardId) || []).slice(-1)[0];
           obra.asesorPendiente = { quien: a.nombre, cardId, antes: antes ? antes.simple : null, t };
@@ -381,12 +398,18 @@ export class Panel {
       return;
     }
 
+    // Claude Code 2.1.28x deja el aviso de fin de una tarea en segundo plano como comando en cola, no como mensaje.
+    if (o.type === "queue-operation" && o.operation === "enqueue" && typeof o.content === "string") {
+      const tn = /<task-notification>[\s\S]*?<task-id>([^<]+)<\/task-id>[\s\S]*?<status>(\w+)<\/status>/.exec(o.content);
+      if (tn) this.notificacionTarea(obra, tn[1].trim(), tn[2], t, o.content);
+      return;
+    }
     if (o.type === "user" && o.message) {
       const c = o.message.content;
       const textos = typeof c === "string" ? [c] : Array.isArray(c) ? c.filter((b) => b.type === "text").map((b) => b.text) : [];
       for (const tx of textos) {
         const tn = /<task-notification>[\s\S]*?<task-id>([^<]+)<\/task-id>[\s\S]*?<status>(\w+)<\/status>/.exec(tx || "");
-        if (tn) { this.notificacionTarea(obra, tn[1].trim(), tn[2]); continue; }
+        if (tn) { this.notificacionTarea(obra, tn[1].trim(), tn[2], t, tx); continue; }
         if (a.rol === "terminal" && !a.tarea && tx && !tx.startsWith("<")) this.agente(cardId, { tarea: redactar(tx.slice(0, 4000)) });
       }
       if (o.toolUseResult && o.toolUseResult.agentId && o.toolUseResult.status) {
@@ -422,15 +445,21 @@ export class Panel {
     }
   }
 
-  notificacionTarea(obra, taskId, status) {
+  /** Aviso de fin de una tarea en segundo plano. `t` es la hora del aviso (no la de leerlo) y `texto`
+   *  el aviso completo, cuyo <result> trae la respuesta final del subagente (y su autoevaluación, si la escribió). */
+  notificacionTarea(obra, taskId, status, t = this.ahora(), texto = "") {
+    const final = ["completed", "failed", "killed"].includes(status);
     const pid = obra.procesosAlias.get(taskId) || (obra.procesos.has("bg:" + taskId) ? "bg:" + taskId : null);
-    if (pid) this.proceso(obra, pid, { estado: status });
+    if (pid) this.proceso(obra, pid, { estado: status, ...(final ? { fin: t } : {}) });
     const id = this.alias.get(taskId); if (!id) return;
     const a = this.agentes.get(id); if (!a) return;
     const estado = status === "completed" ? "termino" : status === "failed" ? "fallo" : status === "killed" ? "detenido" : null;
-    if (!estado || a.estado === estado) return;
-    this.agente(id, { estado, estadoTexto: estado === "detenido" ? "detenido antes de terminar" : null, permiso: null });
-    if (estado !== "termino") this.bitacora(obra, id, estado === "fallo" ? "Falló" : "Se detuvo antes de terminar");
+    if (!estado || (a.estado === estado && !a.porSilencio)) return;
+    const r = /<result>([\s\S]*?)<\/result>/.exec(texto || "");
+    const ev2 = r ? autoevaluacion(r[1]) : null;
+    this.agente(id, { estado, estadoTexto: estado === "detenido" ? "detenido antes de terminar" : null, permiso: null, fin: t, porSilencio: false,
+      ...(r && !a.resultado ? { resultado: corto(sinFormato(redactar(r[1])), LIMITES.textoMax) } : {}), ...(ev2 ? { evaluacion: ev2 } : {}) });
+    this.bitacora(obra, id, estado === "termino" ? this.textoFin(id) : estado === "fallo" ? "Falló" : "Se detuvo antes de terminar");
   }
 
   tokensAsesor(obra, clave, n) {
@@ -521,11 +550,57 @@ export class Panel {
       return true;
     });
     for (const [id, s] of this.sesiones) if (!s.obraId && ahora - (s.t || 0) > 10 * 60_000) this.sesiones.delete(id); // sesiones ajenas: se olvidan
+    this.cerrarPorSilencio(ahora);
     for (const o of this.obras.values()) {
       if (!o.abierta) continue;
       const vivos = [...this.agentes.values()].some((a) => a.obraId === o.id && ["trabajando", "permiso"].includes(a.estado));
       if (!vivos && ahora - o.ultima > LIMITES.inactividadObraMs) { o.abierta = false; this.borrarMarcas(o); for (const [id, l] of this.lectores) if ((this.agentes.get(id) || {}).obraId === o.id) { l.cerrar(); this.lectores.delete(id); } }
     }
   }
+  /** Terminales y subagentes: el registro dice cuándo terminaron aunque el aviso de fin no haya llegado
+   *  (por ejemplo, tras reiniciar el panel). La hora de fin es la de su última línea, no la de ahora. */
+  cerrarPorSilencio(ahora) {
+    for (const a of [...this.agentes.values()]) {
+      if (!["terminal", "subagente"].includes(a.rol) || !a.ultimaT || !["trabajando", "espera"].includes(a.estado)) continue;
+      const silencio = ahora - a.ultimaT;
+      const o = this.obras.get(a.obraId); if (!o) continue;
+      if (a.finTurno && silencio > SILENCIO_FIN_MS) {
+        this.agente(a.id, { estado: "termino", estadoTexto: null, permiso: null, fin: a.ultimaT, porSilencio: true, ahora: { simple: "Terminó", tecnico: "end_turn · sin actividad desde " + horaCorta(a.ultimaT) } });
+        this.bitacora(o, a.id, this.textoFin(a.id));
+      } else if (!a.finTurno && a.estado === "trabajando" && silencio > SILENCIO_PERDIDO_MS) {
+        this.agente(a.id, { estado: "detenido", estadoTexto: "sin señales desde las " + horaCorta(a.ultimaT), permiso: null, fin: a.ultimaT, porSilencio: true });
+        this.bitacora(o, a.id, "Sin señales desde las " + horaCorta(a.ultimaT));
+      }
+    }
+  }
+  textoFin(id) {
+    const a = this.agentes.get(id); if (!a) return "Terminó";
+    const n = a.evaluacion ? " · se puso " + a.evaluacion.nota + "/10" : "";
+    return a.inicio && a.fin ? "Terminó · tardó " + duracionTexto(a.fin - a.inicio) + n : "Terminó" + n;
+  }
+
+  /** Historial de autoevaluaciones: una línea por agente terminado, y un resumen corto (lecciones.md)
+   *  que las skills leen antes de empezar para no repetir errores. Solo nota, duración y las dos frases. */
+  guardarEvaluacion(a) {
+    a.evaluacionGuardada = true;
+    try {
+      const o = this.obras.get(a.obraId) || {};
+      const clave = [a.sesion || a.agentId || a.id, a.evaluacion.nota, a.evaluacion.mejorar || ""].join("|");
+      const previas = existsSync(ARCHIVO_EVALUACIONES) ? readFileSync(ARCHIVO_EVALUACIONES, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) : [];
+      if (previas.some((p) => p.clave === clave)) return;
+      const fila = { clave, fecha: new Date(a.fin).toISOString(), proyecto: o.proyecto || null, agente: a.nombre, rol: a.rol, tipo: a.tipo || null, modelo: a.modelo || null, esfuerzo: a.esfuerzo || null,
+        duracionMs: a.inicio ? a.fin - a.inicio : null, estado: a.estado, nota: a.evaluacion.nota, bien: redactar(a.evaluacion.bien || "") || null, mejorar: redactar(a.evaluacion.mejorar || "") || null };
+      asegurarCarpetas();
+      appendFileSync(ARCHIVO_EVALUACIONES, JSON.stringify(fila) + "\n");
+      const todas = [...previas, fila].slice(-200);
+      const media = (l) => (l.reduce((s, x) => s + x.nota, 0) / l.length).toFixed(1);
+      const md = ["# Lecciones de los agentes (Panel de Obra)", "",
+        "Autoevaluaciones guardadas: " + todas.length + " · nota media " + media(todas) + "/10 · últimas 10: " + media(todas.slice(-10)) + "/10.", "",
+        "Antes de repartir trabajo, lee los «Mejorar» de tu proyecto y pásaselos a los agentes que vayan a repetir ese tipo de tarea.", "",
+        ...todas.slice(-15).reverse().map((x) => "- " + x.fecha.slice(0, 10) + " · " + (x.proyecto || "sin proyecto") + " · " + x.agente + " (" + [x.tipo || x.rol, x.modelo, x.duracionMs != null ? "tardó " + duracionTexto(x.duracionMs) : null].filter(Boolean).join(", ") + ") · **" + x.nota + "/10**" + (x.mejorar ? " · Mejorar: " + x.mejorar : "")), ""].join("\n");
+      writeFileSync(ARCHIVO_LECCIONES, md);
+    } catch { /* el panel nunca se cae por esto */ }
+  }
+
   hayObrasAbiertas() { return [...this.obras.values()].some((o) => o.abierta); }
 }
