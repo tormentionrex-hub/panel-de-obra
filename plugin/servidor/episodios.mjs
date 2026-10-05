@@ -57,11 +57,12 @@ export class Panel {
     this.agentes.set(cardId, a);
     if (a.evaluacion && a.fin && !a.evaluacionGuardada) this.guardarEvaluacion(a);
     const o = this.obras.get(a.obraId); if (o) this.tocar(o);
-    // Si la obra que se ve ya terminó (su principal se cerró o la obra se cerró) y otra tiene actividad, la página cambia a esa.
+    // La página sigue la acción: cambia a otra obra si la que se ve ya terminó, o si en esa otra acaba de aparecer un agente nuevo.
     if (a.obraId && !this.enVista(a.obraId) && ["trabajando", "permiso"].includes(a.estado)) {
       const vista = this.obras.get(this.visible);
       const principal = vista && this.agentes.get("p:" + vista.sesion);
-      if (!vista || !vista.abierta || (principal && ["detenido", "fallo"].includes(principal.estado))) {
+      const recien = !previo && this.ahora() - (a.inicio || 0) < 2 * 60_000 && o && o.abierta;
+      if (recien || !vista || !vista.abierta || (principal && ["detenido", "fallo"].includes(principal.estado))) {
         this.visible = a.obraId; this.emitir(this.snapshot()); return a;
       }
     }
@@ -248,6 +249,9 @@ export class Panel {
     else if (skill === "seguimiento con /panel") o.paginaAbierta = true; // la abre el propio comando /panel
     else o.abrirConAgente = true;
   }
+
+  /** /panel con una pestaña ya abierta: se le manda el estado actual en vez de abrir otra. */
+  mostrarActual() { this.emitir(this.snapshot()); }
 
   abrirSiHaceFalta(o) {
     const { autoabrir } = skillsActivas();

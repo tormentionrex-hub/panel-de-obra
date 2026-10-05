@@ -267,3 +267,13 @@ test("subagente en segundo plano: el aviso de fin en cola lo cierra a la hora re
   assert.equal(a.fin, t1, "a la hora del aviso");
   assert.equal(a.evaluacion.nota, 8); assert.match(a.evaluacion.mejorar, /contrato/);
 });
+
+test("la pantalla sigue la acción: un agente nuevo en otra obra la trae a la vista", () => {
+  const { p } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-v1", command_name: "director-de-obra", prompt: "/director-de-obra uno" });
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-v2", command_name: "director-de-obra", prompt: "/director-de-obra dos" });
+  const o1 = p.agentes.get("p:s-v1").obraId, o2 = p.agentes.get("p:s-v2").obraId;
+  assert.equal(p.visible, o2);
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-v1", tool_name: "Agent", tool_use_id: "tv1", tool_input: { description: "nuevo en la uno", subagent_type: "lector", prompt: "lee" } });
+  assert.equal(p.visible, o1, "cambió a la obra donde apareció el agente nuevo");
+});

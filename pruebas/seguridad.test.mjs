@@ -88,3 +88,26 @@ test("límite de eventos por segundo → 429", async () => {
   const rs = await Promise.all(Array.from({ length: 260 }, (_, i) => firmado("/ingest", { hook_event_name: "Stop", session_id: "r" + i })));
   assert.ok(rs.some((r) => r.codigo === 429));
 });
+
+test("una sola pantalla: con una pestaña conectada, /panel no abre otra, y la pestaña sobrevive a un reinicio", async () => {
+  await new Promise((x) => setTimeout(x, 1500)); // deja pasar el límite de eventos por segundo de la prueba anterior
+  const { enlace } = JSON.parse((await firmado("/abrir", { imprimir: true })).cuerpo);
+  const galleta = String((await pedir({ ruta: enlace.replace(/^http:\/\/127\.0\.0\.1:\d+/, "") })).cabeceras["set-cookie"]);
+  assert.match(galleta, /Max-Age=\d+/, "no se pierde al cerrar el navegador");
+  const cookie = galleta.split(";")[0];
+  // una pestaña conectada (flujo de eventos abierto)
+  const sse = await new Promise((ok, mal) => {
+    const req = request({ host: "127.0.0.1", port: puerto, path: "/events", headers: { Host: `127.0.0.1:${puerto}`, Cookie: cookie } }, (res) => { res.once("data", () => ok(req)); });
+    req.on("error", mal); req.end();
+  });
+  const r = JSON.parse((await firmado("/abrir", {})).cuerpo);
+  assert.equal(r.yaAbierta, true, "no abre otra pestaña");
+  sse.destroy();
+  // reinicio del servidor: la misma cookie sigue valiendo
+  servidor.kill(); await new Promise((x) => servidor.once("exit", x));
+  rmSync(join(datos, "estado", "servidor.json"), { force: true });
+  servidor = spawn(process.execPath, [join(AQUI, "..", "plugin", "servidor", "servidor.mjs")], { env: { ...process.env, PANEL_DATOS: datos }, stdio: "ignore" });
+  for (let i = 0; i < 50 && !existsSync(join(datos, "estado", "servidor.json")); i++) await new Promise((x) => setTimeout(x, 100));
+  puerto = JSON.parse(readFileSync(join(datos, "estado", "servidor.json"), "utf8")).puerto;
+  assert.equal((await pedir({ ruta: "/api/snapshot", cabeceras: { Cookie: cookie.replace(/panel_\d+/, "panel_" + puerto) } })).codigo, 200, "la pestaña se reconecta sola");
+});

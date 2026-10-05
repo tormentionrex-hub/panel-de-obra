@@ -41,7 +41,9 @@ function tomarCandado() {
 }
 if (!tomarCandado()) { log("ya hay un servidor vivo; salgo"); process.exit(0); }
 const SECRETO = leerOCrearSecreto();
-const COOKIE_VALOR = randomBytes(24).toString("hex");
+// Derivada del secreto (solo legible por tu usuario): sobrevive a los reinicios del servidor, así la pestaña
+// abierta se reconecta sola y no hace falta abrir otra. Se invalida borrando el secreto.
+const COOKIE_VALOR = createHmac("sha256", SECRETO).update("panel-de-obra:pagina").digest("hex");
 let PUERTO = null;
 const codigos = new Map(); // código de un solo uso → caduca
 const clientes = new Set();
@@ -116,6 +118,8 @@ const servidor = createServer(async (req, res) => {
       const t0 = firmaValida(req, cuerpo); if (!t0) return responder(res, 401, "firma");
       if (url.pathname === "/abrir") {
         let pedido = {}; try { pedido = JSON.parse(cuerpo); } catch { /* vacío */ }
+        // Una sola pantalla: si ya hay una pestaña conectada, se actualiza en el sitio en vez de abrir otra.
+        if (!pedido.imprimir && !pedido.nueva && clientes.size > 0) { panel.mostrarActual(); return responder(res, 200, JSON.stringify({ ok: true, yaAbierta: true }), { "Content-Type": "application/json" }); }
         const enlace = enlaceNuevo();
         if (!pedido.imprimir) abrirNavegador(enlace);
         return responder(res, 200, JSON.stringify({ ok: true, ...(pedido.imprimir ? { enlace } : {}) }), { "Content-Type": "application/json" });
@@ -135,7 +139,7 @@ const servidor = createServer(async (req, res) => {
       const c = url.searchParams.get("code") || "", vence = codigos.get(c);
       codigos.delete(c);
       if (!vence || vence < Date.now()) return responder(res, 403, "Este enlace ya se usó o caducó. Abre el panel otra vez con /panel.");
-      res.writeHead(302, { ...SEGURIDAD, Location: "/", "Set-Cookie": `panel_${PUERTO}=${COOKIE_VALOR}; HttpOnly; SameSite=Strict; Path=/` });
+      res.writeHead(302, { ...SEGURIDAD, Location: "/", "Set-Cookie": `panel_${PUERTO}=${COOKIE_VALOR}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000` });
       return res.end();
     }
     if (!cookieValida(req)) return responder(res, 401, "Panel de Obra: abre la página con el enlace que da /panel (o espera a que una de tus skills empiece).");

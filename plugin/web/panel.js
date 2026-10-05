@@ -478,12 +478,27 @@
       }
     }
   }
+  // Pantalla en vivo permanente: si el servidor se reinicia o se cae, la página se reconecta sola
+  // y recibe el estado completo; nunca hace falta recargarla ni abrir otra.
+  let reintento = 0;
   function conectar() {
     const c = $("conexion"); c.dataset.estado = "conectando"; c.textContent = "conectando…";
     const f = new EventSource("/events");
-    f.onopen = () => { c.dataset.estado = "vivo"; c.textContent = "en vivo"; };
+    f.onopen = () => { reintento = 0; c.dataset.estado = "vivo"; c.textContent = "en vivo"; };
     f.onmessage = (ev) => { try { recibir(JSON.parse(ev.data)); } catch (e) { console.warn("mensaje ignorado", e); } };
-    f.onerror = () => { c.dataset.estado = "caido"; c.textContent = "sin conexión · reintentando"; };
+    f.onerror = () => {
+      c.dataset.estado = "caido"; c.textContent = "sin conexión · reintentando";
+      if (f.readyState !== EventSource.CLOSED) return; // el navegador reintenta solo
+      f.close();
+      const espera = Math.min(15000, 2000 * 2 ** Math.min(reintento++, 3));
+      setTimeout(async () => {
+        try {
+          const r = await fetch("/api/snapshot", { cache: "no-store" });
+          if (r.status === 401) { c.textContent = "sin permiso · escribe /panel-agentes:panel"; setTimeout(conectar, 15000); return; }
+        } catch { /* servidor apagado: se reintenta igual */ }
+        conectar();
+      }, espera);
+    };
   }
 
   // ── temporizadores: iconos, relojes y ritmo de tokens ──────
