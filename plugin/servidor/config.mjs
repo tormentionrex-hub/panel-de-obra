@@ -26,6 +26,16 @@ export const ABREN = ["subagentes", "director-de-obra"];
 // /panel: abre la página y además empieza a seguir la sesión donde se escribe, aunque no use esas skills.
 export const SEGUIR = ["panel", "panel-agentes:panel"];
 export const esSeguir = (nombre) => SEGUIR.includes(nombre);
+// Disparadores automáticos, en cualquier carpeta: Claude lanza un subagente (Agent/Task/Workflow)
+// o una terminal con nombre (claude … --name X, abrir-subagente.ps1 -Nombre X).
+export const AUTOMATICOS = { subagente: "lanzó un subagente", terminal: "lanzó una terminal con nombre" };
+export const RE_TERMINAL = /\bclaude(?:\.exe|\.cmd)?\b.*?--name[\s=]|abrir-subagente(?:\.ps1)?\b.*?-Nombre\s/i;
+export function lanzaAgentes(ev) {
+  if (!ev || ev.hook_event_name !== "PreToolUse") return null;
+  if (["Agent", "Task", "Workflow"].includes(ev.tool_name)) return "subagente";
+  if (["Bash", "PowerShell"].includes(ev.tool_name) && RE_TERMINAL.test(String((ev.tool_input && ev.tool_input.command) || ""))) return "terminal";
+  return null;
+}
 
 export const LIMITES = {
   cuerpoMax: 256 * 1024,      // bytes por evento recibido
@@ -47,7 +57,7 @@ export function leerConfig() {
 }
 export function skillsActivas() {
   const c = leerConfig();
-  return { todas: [...SKILLS, ...SEGUIR, ...(c.skillsExtra || [])], abren: [...ABREN, ...(c.skillsExtra || [])], autoabrir: c.autoabrir !== false };
+  return { todas: [...SKILLS, ...SEGUIR, ...(c.skillsExtra || [])], abren: [...ABREN, ...Object.values(AUTOMATICOS), ...(c.skillsExtra || [])], autoabrir: c.autoabrir !== false, automatico: c.automatico !== false };
 }
 
 /** Secreto compartido entre el reenviador y el servidor; solo legible por tu usuario. */

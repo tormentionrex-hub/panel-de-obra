@@ -24,16 +24,17 @@ async function leerEntrada() {
 async function decidir() {
   if (process.env.AGENT_PANEL === "off") return;
   if (process.env.CLAUDE_CODE_REMOTE === "true" || process.env.SSH_CONNECTION || process.env.SSH_TTY) return;
-  const { ARCHIVO_APAGADO, DIR_OBRAS, skillsActivas } = await import("../servidor/config.mjs");
+  const { ARCHIVO_APAGADO, DIR_OBRAS, skillsActivas, lanzaAgentes } = await import("../servidor/config.mjs");
   if (existsSync(ARCHIVO_APAGADO)) return;
   const entrada = await leerEntrada(); if (!entrada) return;
   let ev; try { ev = JSON.parse(entrada); } catch { return; }
   if (!ev || !ev.session_id || !ev.hook_event_name) return;
 
-  const { todas } = skillsActivas();
+  const { todas, automatico } = skillsActivas();
   const nombre = ev.hook_event_name;
   const disparador = (nombre === "UserPromptExpansion" && todas.includes(ev.command_name))
-    || (nombre === "PreToolUse" && ev.tool_name === "Skill" && todas.includes(ev.tool_input && ev.tool_input.skill));
+    || (nombre === "PreToolUse" && ev.tool_name === "Skill" && todas.includes(ev.tool_input && ev.tool_input.skill))
+    || (automatico && !!lanzaAgentes(ev));
   const inicio = nombre === "SessionStart";
   const marcada = existsSync(join(DIR_OBRAS, String(ev.session_id).replace(/[^\w-]/g, "") + ".json"));
   const hija = !!process.env.PANEL_OBRA;

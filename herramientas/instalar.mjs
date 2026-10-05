@@ -27,13 +27,16 @@ if (Number(version.replace(/^v/, "").split(".")[0]) < 20) { console.error(`Hace 
 
 // 2) hooks.json con la ruta absoluta de node (así funciona aunque la app no tenga node en su PATH).
 const h = () => [{ type: "command", command: NODE, args: ["${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"], async: true }];
+// Comandos de consola: el hook solo corre si el comando lanza una terminal con nombre (no en cada comando).
+const FILTROS = ["*claude*--name*", "*abrir-subagente*"];
+const hConsola = () => ["Bash", "PowerShell"].flatMap((t) => FILTROS.map((f) => ({ ...h()[0], if: `${t}(${f})` })));
 const evento = (matcher) => (matcher ? [{ matcher, hooks: h() }] : [{ hooks: h() }]);
 const hooks = {
   description: "Panel de Obra: avisa al panel local de lo que hacen tus agentes. Silencioso y sin bloquear.",
   hooks: {
     SessionStart: evento(), SessionEnd: evento(),
     UserPromptExpansion: evento("escalera-de-ejecucion|subagentes|director-de-obra|panel|panel-agentes:panel"),
-    PreToolUse: evento("Skill|Agent|Task|Workflow"),
+    PreToolUse: [...evento("Skill|Agent|Task|Workflow"), { matcher: "Bash|PowerShell", hooks: hConsola() }],
     PermissionRequest: evento(), PermissionDenied: evento(),
     Notification: evento("permission_prompt|idle_prompt"),
     SubagentStart: evento(), SubagentStop: evento(), Stop: evento(), StopFailure: evento(),

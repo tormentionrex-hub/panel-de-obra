@@ -7,6 +7,8 @@ const archivo = (p) => String(p || "").replace(/\\/g, "/").split("/").filter(Boo
 
 const COMANDOS = [
   { re: /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(test|vitest|jest)\b|\bvitest\b|\bjest\b|\bpytest\b|\bplaywright\s+test\b|\bnode\s+--test\b|\bgo\s+test\b|\bcargo\s+test\b|\bdotnet\s+test\b/, tipo: "pruebas", texto: "Corriendo las pruebas" },
+  { re: /\bclaude(?:\.exe|\.cmd)?\b.*?--name[\s=]+(["']?)([\w.-]+)\1/, tipo: "terminal", texto: null },
+  { re: /abrir-subagente(?:\.ps1)?\b.*?-Nombre\s+(["']?)([\w.-]+)\1/i, tipo: "terminal", texto: null },
   { re: /\bgit\s+commit\b/, tipo: "git", texto: "Guardando cambios con git" },
   { re: /\bgit\s+push\b/, tipo: "git", texto: "Subiendo cambios con git" },
   { re: /\bgit\s+(status|diff|log|show|branch)\b/, tipo: "git", texto: "Revisando el estado de git" },
@@ -16,7 +18,6 @@ const COMANDOS = [
   { re: /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start)\b/, tipo: "servidor", texto: "Levantando la aplicación" },
   { re: /\b(migrate|migration|prisma\s+(db|migrate))\b/, tipo: "datos", texto: "Cambiando la estructura de la base de datos" },
   { re: /\bpsql\b|\bmysql\b|\bsqlite3\b/, tipo: "datos", texto: "Consultando la base de datos" },
-  { re: /\bclaude\b.*--name\s+("?)([\w.-]+)\1/, tipo: "terminal", texto: null },
   { re: /\bcurl\b|\bInvoke-WebRequest\b|\biwr\b|\bwget\b/i, tipo: "red", texto: "Consultando un servicio" },
 ];
 

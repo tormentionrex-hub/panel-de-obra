@@ -57,6 +57,47 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true,
+            "if": "Bash(*claude*--name*)"
+          },
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true,
+            "if": "Bash(*abrir-subagente*)"
+          },
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true,
+            "if": "PowerShell(*claude*--name*)"
+          },
+          {
+            "type": "command",
+            "command": "C:\\Program Files\\nodejs\\node.exe",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/reenviar.mjs"
+            ],
+            "async": true,
+            "if": "PowerShell(*abrir-subagente*)"
+          }
+        ]
       }
     ],
     "PermissionRequest": [

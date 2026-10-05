@@ -277,3 +277,19 @@ test("la pantalla sigue la acción: un agente nuevo en otra obra la trae a la vi
   p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-v1", tool_name: "Agent", tool_use_id: "tv1", tool_input: { description: "nuevo en la uno", subagent_type: "lector", prompt: "lee" } });
   assert.equal(p.visible, o1, "cambió a la obra donde apareció el agente nuevo");
 });
+
+test("automático: en cualquier carpeta, lanzar un subagente o una terminal con nombre abre el panel de esa sesión", () => {
+  const { p, aperturas } = nuevoPanel();
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-auto1", cwd: "C:/proy/tienda", tool_name: "Agent", tool_use_id: "ta1", tool_input: { description: "revisar pagos", subagent_type: "general-purpose", prompt: "revisa" } });
+  const o1 = p.obras.get(p.agentes.get("p:s-auto1").obraId);
+  assert.equal(aperturas(), 1, "se abrió la página");
+  assert.ok(p.agentes.has("t:ta1"), "y la tarjeta del subagente está");
+  assert.equal(o1.proyecto, "tienda");
+  assert.ok(o1.bitacora.some((b) => /se abrió solo: Claude lanzó un subagente/.test(b.texto)));
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-auto2", cwd: "C:/proy/app", tool_name: "PowerShell", tool_use_id: "tb1", tool_input: { command: "cd C:/proy/app; wt new-tab claude --name 'backend-pagos' --model sonnet" } });
+  const o2 = p.obras.get(p.agentes.get("p:s-auto2").obraId);
+  assert.ok(o2.esperadas.has("backend-pagos"), "espera a la terminal por su nombre");
+  assert.equal(p.visible, o2.id);
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-auto3", tool_name: "Bash", tool_use_id: "tc1", tool_input: { command: "npm test" } });
+  assert.equal(p.agentes.has("p:s-auto3"), false, "un comando cualquiera no abre nada");
+});

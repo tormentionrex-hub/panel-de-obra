@@ -68,3 +68,12 @@ test("solo se leen transcripts dentro de ~/.claude/projects", async () => {
   assert.equal(rutaPermitida(join(homedir(), ".claude", "projects", "..", "fuera.jsonl")), false);
   assert.equal(rutaPermitida(join(homedir(), ".claude", "projects", "algo", "s.jsonl")), false, "carpeta inexistente");
 });
+
+test("terminal con nombre: se reconoce aunque vaya con git delante, comillas simples o con el lanzador de la skill", async () => {
+  const { describir } = await import("../plugin/servidor/interprete.mjs");
+  assert.equal(describir("PowerShell", { command: "git pull; claude --name 'api-pagos' -p" }).terminal, "api-pagos");
+  assert.equal(describir("PowerShell", { command: String.raw`.\scripts\abrir-subagente.ps1 -Nombre "frontend" -Ruta C:\x` }).terminal, "frontend");
+  const { lanzaAgentes } = await import("../plugin/servidor/config.mjs");
+  assert.equal(lanzaAgentes({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "claude --version" } }), null);
+  assert.equal(lanzaAgentes({ hook_event_name: "PreToolUse", tool_name: "Task", tool_input: {} }), "subagente");
+});

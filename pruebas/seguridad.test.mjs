@@ -85,7 +85,7 @@ test("texto con <script> viaja como texto y la página nunca usa innerHTML", asy
   assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(/);
 });
 test("límite de eventos por segundo → 429", async () => {
-  const rs = await Promise.all(Array.from({ length: 260 }, (_, i) => firmado("/ingest", { hook_event_name: "Stop", session_id: "r" + i })));
+  const rs = await Promise.all(Array.from({ length: 600 }, (_, i) => firmado("/ingest", { hook_event_name: "Stop", session_id: "r" + i })));
   assert.ok(rs.some((r) => r.codigo === 429));
 });
 

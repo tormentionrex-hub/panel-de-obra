@@ -4,9 +4,10 @@ import { writeFileSync, readFileSync, readdirSync, unlinkSync, existsSync, statS
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { DATOS, DIR_OBRAS, DIR_PROYECTOS, LIMITES, skillsActivas, asegurarCarpetas, esSeguir } from "./config.mjs";
+import { AUTOMATICOS, lanzaAgentes, DATOS, DIR_OBRAS, DIR_PROYECTOS, LIMITES, skillsActivas, asegurarCarpetas, esSeguir } from "./config.mjs";
 import { Lector, buscarSubagente, leerMeta, nombreDeSesion, rutaPermitida, tamano } from "./transcripts.mjs";
 import { describir, resultado, nombreModelo, duracionTexto, autoevaluacion } from "./interprete.mjs";
+const textoActivacion = (skill) => (Object.values(AUTOMATICOS).includes(skill) ? "El panel se abrió solo: " + skill.replace(/^lanzó/, "Claude lanzó") : "Se activó " + skill);
 const ARCHIVO_EVALUACIONES = join(DATOS, "evaluaciones.jsonl");
 const ARCHIVO_LECCIONES = join(DATOS, "lecciones.md");
 const horaCorta = (t) => new Date(t).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -92,11 +93,18 @@ export class Panel {
     if (!ev || typeof ev !== "object" || !ev.session_id) return;
     const nombreEv = ev.hook_event_name;
     const s = this.sesion(ev, t0);
-    const { todas } = skillsActivas();
+    const { todas, automatico } = skillsActivas();
     if (nombreEv === "SessionStart") return this.alIniciarSesion(ev, s, t0);
     if (nombreEv === "UserPromptExpansion" && todas.includes(ev.command_name)) return this.activar(s, ev.command_name, ev.prompt || `/${ev.command_name} ${ev.command_args || ""}`, t0, ev);
     if (nombreEv === "PreToolUse" && ev.tool_name === "Skill" && todas.includes(ev.tool_input && ev.tool_input.skill)) {
       return this.activar(s, ev.tool_input.skill, `/${ev.tool_input.skill} ${ev.tool_input.args || ""}`.trim(), t0, ev);
+    }
+    if (!s.obraId && automatico) {
+      const lanza = lanzaAgentes(ev);
+      if (lanza) {
+        const d = describir(ev.tool_name, ev.tool_input || {});
+        this.activar(s, AUTOMATICOS[lanza], lanza === "terminal" ? d.simple : `${ev.tool_name}: ${(ev.tool_input && ev.tool_input.description) || "subagente"}`, t0, ev);
+      }
     }
     if (!s.obraId) return; // sesión que no es de una obra: se ignora
     const o = this.obras.get(s.obraId); if (!o) return;
@@ -105,6 +113,7 @@ export class Panel {
       case "PreToolUse": {
         if (["Agent", "Task"].includes(ev.tool_name)) this.nuevoSubagente(o, ev.tool_use_id, ev.tool_input || {}, cardId || s.cardId, t0);
         if (ev.tool_name === "Workflow") this.nuevoWorkflow(o, ev.tool_use_id, ev.tool_input || {}, cardId || s.cardId, t0);
+        if (["Bash", "PowerShell"].includes(ev.tool_name)) { const d = describir(ev.tool_name, ev.tool_input || {}); if (d.terminal) o.esperadas.set(d.terminal, t0); }
         if (cardId && ev.effort && ESFUERZOS.has(ev.effort.level)) { const a = this.agentes.get(cardId); if (a && a.esfuerzo !== ev.effort.level) this.agente(cardId, { esfuerzo: ev.effort.level }); }
         break;
       }
@@ -240,8 +249,8 @@ export class Panel {
       this.guardarMarca(s.id, { obraId: o.id, rol: "principal", t: t0, offset, transcript: s.transcript || null });
       if (s.transcript) this.leerTranscript(cardId, s.transcript, offset);
       this.emitir(this.snapshot()); // la página pasa a mostrar esta obra
-      this.bitacora(o, cardId, `Se activó ${skill}`);
-    } else this.bitacora(o, s.cardId, `Se activó ${skill}`);
+      this.bitacora(o, cardId, textoActivacion(skill));
+    } else this.bitacora(o, s.cardId, textoActivacion(skill));
     o.skills.add(skill);
     this.obraCambio(o);
     const { abren } = skillsActivas();
