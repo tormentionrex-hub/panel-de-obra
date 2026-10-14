@@ -20,7 +20,8 @@ import { enlaceClaude } from "./app-claude.mjs";
 // Lo que lleva más de esto sin respuesta no se cuenta como «en curso» (no se pintan tareas fantasma).
 const EN_CURSO_MAX_MS = 10 * 60_000;
 // El aviso final solo sale si el último agente terminó hace menos de esto (no al reconstruir obras viejas).
-const FIN_RECIENTE_MS = 15 * 60_000;
+// (se mide con la hora del EVENTO que lo dispara: lo vivo avisa; lo releído del historial, no)
+const FIN_EN_VIVO_MS = 2 * 60_000;
 
 const ESFUERZOS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const sinFormato = (x) => (x == null ? x : String(x).replace(/```[\s\S]*?```/g, " ").replace(/[#*_`>|]+/g, "").replace(/\s+/g, " ").trim());
@@ -43,7 +44,9 @@ export class Panel {
   }
 
   // ── salida hacia la página ─────────────────────────────────
-  obraPublica(o) { return o && { id: o.id, titulo: o.titulo, skills: [...o.skills], proyecto: o.proyecto, comando: o.comando, pruebas: o.pruebas || null }; }
+  obraPublica(o) { return o && { id: o.id, titulo: o.titulo, skills: [...o.skills], proyecto: o.proyecto, comando: o.comando, pruebas: o.pruebas || null, ir: enlaceClaude(o.sesion) }; }
+  /** Enlace al chat del orquestador de la obra que se ve (para /ir: el servidor nunca abre algo que mande la página). */
+  enlaceVisible() { const o = this.obras.get(this.visible); return o ? enlaceClaude(o.sesion) : null; }
   snapshot() {
     const o = this.obras.get(this.visible);
     const agentes = o ? [...this.agentes.values()].filter((a) => a.obraId === o.id) : [];
@@ -97,6 +100,7 @@ export class Panel {
 
   // ── entrada: un evento de hook ─────────────────────────────
   ingerir(ev, t0 = this.ahora()) {
+    this.tEvento = t0;
     if (!ev || typeof ev !== "object" || !ev.session_id) return;
     const nombreEv = ev.hook_event_name;
     const s = this.sesion(ev, t0);
@@ -285,8 +289,7 @@ export class Panel {
     if (hijos.some(vivo)) { o.finAvisado = false; return; }
     const principal = todos.find((x) => x.rol === "principal");
     if (o.finAvisado || (principal && vivo(principal))) return;
-    const ultimoFin = Math.max(...hijos.map((x) => x.fin || 0));
-    if (!ultimoFin || this.ahora() - ultimoFin > FIN_RECIENTE_MS) return;
+    if (this.ahora() - (this.tEvento || this.ahora()) > FIN_EN_VIVO_MS) return;
     o.finAvisado = true;
     const ir = enlaceClaude(o.sesion);
     const resumen = hijos.map((x) => ({ nombre: x.nombre, rol: x.rol, estado: x.estado, tardoMs: x.inicio && x.fin ? x.fin - x.inicio : null, nota: x.evaluacion ? x.evaluacion.nota : null }));
@@ -326,6 +329,7 @@ export class Panel {
 
   // ── subagentes ─────────────────────────────────────────────
   nuevoSubagente(o, toolUseId, input, padreId, t0) {
+    o.finAvisado = false; // tanda nueva: el aviso vuelve a estar disponible
     const cardId = "t:" + toolUseId;
     if (this.agentes.has(cardId)) return cardId;
     const padre = this.agentes.get(padreId);
@@ -341,6 +345,7 @@ export class Panel {
     return cardId;
   }
   nuevoWorkflow(o, toolUseId, input, padreId, t0) {
+    o.finAvisado = false;
     const cardId = "w:" + toolUseId;
     if (this.agentes.has(cardId)) return;
     const padre = this.agentes.get(padreId);
@@ -375,6 +380,7 @@ export class Panel {
 
   // ── terminales con nombre ──────────────────────────────────
   crearTerminal(o, s, nombre, t0) {
+    o.finAvisado = false;
     const cardId = "s:" + s.id;
     s.obraId = o.id; s.cardId = cardId;
     this.agente(cardId, {
@@ -399,6 +405,7 @@ export class Panel {
     const a = this.agentes.get(cardId); if (!a) return;
     const obra = this.obras.get(a.obraId); if (!obra) return;
     const t = o.timestamp ? Date.parse(o.timestamp) || this.ahora() : this.ahora();
+    this.tEvento = t;
     if (o.type === "assistant" || o.type === "user") {
       if (!(a.ultimaT > t)) a.ultimaT = t;
       if (a.rol === "terminal" && o.timestamp && t < (a.inicio || Infinity)) a.inicio = t; // empezó cuando escribió su primera línea
@@ -614,6 +621,7 @@ export class Panel {
       if (!["terminal", "subagente"].includes(a.rol) || !a.ultimaT || !["trabajando", "espera"].includes(a.estado)) continue;
       const silencio = ahora - a.ultimaT;
       const o = this.obras.get(a.obraId); if (!o) continue;
+      this.tEvento = a.ultimaT + SILENCIO_FIN_MS; // el fin «ocurrió» al cumplirse el silencio, no al releerlo
       if (a.finTurno && silencio > SILENCIO_FIN_MS) {
         this.agente(a.id, { estado: "termino", estadoTexto: null, permiso: null, fin: a.ultimaT, porSilencio: true, ahora: { simple: "Terminó", tecnico: "end_turn · sin actividad desde " + horaCorta(a.ultimaT) } });
         this.bitacora(o, a.id, this.textoFin(a.id));

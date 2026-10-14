@@ -8,7 +8,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PUERTOS, ARCHIVO_SERVIDOR, ARCHIVO_CANDADO, DIR_REGISTRO, LIMITES, asegurarCarpetas, leerOCrearSecreto } from "./config.mjs";
 import { Panel } from "./episodios.mjs";
-import { abrirNavegador } from "./navegador.mjs";
+import { abrirNavegador, abrirEnlaceApp } from "./navegador.mjs";
+import { ENLACE_VALIDO } from "./app-claude.mjs";
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), "..", "web");
 const ARCHIVOS = { "/": ["index.html", "text/html; charset=utf-8"], "/panel.css": ["panel.css", "text/css; charset=utf-8"], "/panel.js": ["panel.js", "text/javascript; charset=utf-8"] };
@@ -131,6 +132,14 @@ const servidor = createServer(async (req, res) => {
       return responder(res, 204);
     }
 
+    // «Ir a Claude»: la página pide abrir el chat del orquestador de la obra que se ve. No recibe ninguna URL.
+    if (url.pathname === "/ir" && req.method === "POST") {
+      if (req.headers["sec-fetch-site"] !== "same-origin" || !cookieValida(req)) return responder(res, 403, "no");
+      if (!limiteVelocidad()) return responder(res, 429, "despacio");
+      const ir = panel.enlaceVisible();
+      const ok = !!(ir && abrirEnlaceApp(ir.href, ENLACE_VALIDO));
+      return responder(res, ok ? 200 : 409, JSON.stringify({ ok }), { "Content-Type": "application/json" });
+    }
     if (req.method !== "GET") return responder(res, 405, "método");
     const sitio = req.headers["sec-fetch-site"];
     if (sitio && sitio !== "same-origin" && sitio !== "none") return responder(res, 403, "no");

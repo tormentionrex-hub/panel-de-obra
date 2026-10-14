@@ -22,9 +22,9 @@ function carpetas() {
 }
 
 const mapa = new Map(); // cliSessionId → { sessionId, titulo }
-let ultimoEscaneo = 0;
-function escanear() {
-  ultimoEscaneo = Date.now();
+const ultimoEscaneo = new Map();
+function escanear(buscado) {
+  ultimoEscaneo.set(buscado, Date.now());
   const recorrer = (dir, prof) => {
     let entradas; try { entradas = readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entradas) {
@@ -32,7 +32,9 @@ function escanear() {
       if (e.isDirectory() && prof < 4) recorrer(p, prof + 1);
       else if (e.isFile() && /^local_.*\.json$/.test(e.name)) {
         try {
-          const j = JSON.parse(readFileSync(p, "utf8"));
+          const texto = readFileSync(p, "utf8");
+          if (!texto.includes(buscado)) continue; // las demás sesiones no se interpretan
+          const j = JSON.parse(texto);
           if (j && UUID.test(j.cliSessionId || "") && LOCAL.test(j.sessionId || "")) mapa.set(j.cliSessionId, { sessionId: j.sessionId, titulo: typeof j.title === "string" ? j.title.slice(0, 120) : null });
         } catch { /* archivo a medio escribir */ }
       }
@@ -41,10 +43,13 @@ function escanear() {
   for (const d of carpetas()) recorrer(d, 0);
 }
 
+/** Valida un enlace antes de abrirlo desde el servidor: solo los dos formatos que construye este módulo. */
+export const ENLACE_VALIDO = /^claude:\/\/(code\/continue\?session=local_[A-Za-z0-9-]{1,64}&source=panel-de-obra|resume\?session=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
 /** { href, titulo, enApp } para volver al chat de esta sesión, o null si el id no es válido. */
 export function enlaceClaude(cliSessionId) {
   if (!UUID.test(String(cliSessionId || ""))) return null;
-  if (!mapa.has(cliSessionId) && Date.now() - ultimoEscaneo > 30_000) escanear();
+  if (!mapa.has(cliSessionId) && Date.now() - (ultimoEscaneo.get(cliSessionId) || 0) > 30_000) escanear(cliSessionId);
   const m = mapa.get(cliSessionId);
   if (m) return { href: `claude://code/continue?session=${m.sessionId}&source=panel-de-obra`, titulo: m.titulo, enApp: true };
   return { href: `claude://resume?session=${cliSessionId}`, titulo: null, enApp: false };

@@ -325,3 +325,23 @@ test("aviso final: sale una vez cuando termina el último agente y el orquestado
   p.agente("t:f2", { estadoTexto: "x" });
   assert.equal(fines().length, 1, "no se repite");
 });
+
+test("aviso final: el orquestador puede seguir trabajando mucho rato; avisa al terminar, y una tanda nueva vuelve a avisar", () => {
+  let reloj = Date.now();
+  const msgs = [];
+  const p = new Panel({ emitir: (m) => msgs.push(m), abrir: () => {}, ahora: () => reloj });
+  const fines = () => msgs.filter((m) => m.tipo === "fin").length;
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-t2", command_name: "director-de-obra", prompt: "/director-de-obra t" }, reloj);
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-t2", tool_name: "Agent", tool_use_id: "g1", tool_input: { description: "uno", subagent_type: "lector", prompt: "x" } }, reloj);
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-t2", tool_name: "Agent", tool_use_id: "g1b", tool_input: { description: "uno-b", subagent_type: "lector", prompt: "x" } }, reloj);
+  p.agente("t:g1", { estado: "termino" }); p.agente("t:g1b", { estado: "termino" });
+  assert.equal(fines(), 0, "el orquestador sigue trabajando");
+  reloj += 40 * 60_000; // verifica, redacta y commitea durante 40 minutos
+  p.ingerir({ hook_event_name: "Stop", session_id: "s-t2", last_assistant_message: "listo" }, reloj);
+  assert.equal(fines(), 1, "avisa en su Stop aunque los agentes terminaran hace 40 min");
+  reloj += 60_000;
+  p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-t2", tool_name: "Agent", tool_use_id: "g2", tool_input: { description: "dos", subagent_type: "lector", prompt: "x" } }, reloj);
+  p.ingerir({ hook_event_name: "Stop", session_id: "s-t2", last_assistant_message: "lancé otra" }, reloj);
+  p.agente("t:g2", { estado: "termino" });
+  assert.equal(fines(), 2, "la tanda nueva vuelve a avisar");
+});

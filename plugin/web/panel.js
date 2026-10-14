@@ -442,7 +442,17 @@
       if (e && e.bien) filas.push(["le salió bien", e.bien]);
       if (e && e.mejorar) filas.push(["para mejorar", e.mejorar]);
     }
-    for (const [t, v] of filas) { dl.append(el("dt", { text: t })); dl.append(v === null ? el("dd", { class: "tarea", text: a.tarea || "desconocida" }) : el("dd", { text: v })); }
+    if (a.rol === "principal" && estado.obra && estado.obra.ir && estado.obra.ir.href) {
+      filas.push(["volver a su chat", null]);
+    }
+    for (const [t, v] of filas) {
+      if (t === "volver a su chat") {
+        dl.append(el("dt", { text: t }), el("dd", null,
+          el("a", { class: "detalle__ir", href: estado.obra.ir.href, text: "Ir a este chat en Claude" + (estado.obra.ir.titulo ? ` («${estado.obra.ir.titulo}»)` : "") }),
+          " · ", el("button", { type: "button", id: "detalle-ir-panel", class: "aviso-fin__plan-b", text: "o que lo abra el panel" })));
+        continue;
+      }
+      dl.append(el("dt", { text: t })); dl.append(v === null ? el("dd", { class: "tarea", text: a.tarea || "desconocida" }) : el("dd", { text: v })); }
     const c = a.contadores || {}, hecho = [];
     const pl = (n, s, p) => `${n} ${n > 1 ? p : s}`;
     if (c.leidos) hecho.push(`leyó ${pl(c.leidos, "archivo", "archivos")}`);
@@ -513,7 +523,17 @@
     const titulo = document.title; document.title = "✓ Terminó · " + titulo.replace(/^✓ Terminó · /, "");
     anunciar("Todas las tareas terminaron");
   }
-  document.addEventListener("click", (e) => { if (e.target && e.target.id === "fin-cerrar") $("aviso-fin").close(); });
+  async function irPorElPanel(boton) {
+    const antes = boton.textContent; boton.disabled = true; boton.textContent = "abriendo…";
+    try { const r = await fetch("/ir", { method: "POST" }); boton.textContent = r.ok ? "listo · mira la app de Claude" : "no pude abrirla"; }
+    catch { boton.textContent = "no pude abrirla"; }
+    setTimeout(() => { boton.textContent = antes; boton.disabled = false; }, 4000);
+  }
+  document.addEventListener("click", (e) => {
+    const id = e.target && e.target.id;
+    if (id === "fin-cerrar") $("aviso-fin").close();
+    if (id === "fin-ir-panel" || id === "detalle-ir-panel") irPorElPanel(e.target);
+  });
 
   // ── mensajes del servidor ──────────────────────────────────
   let repintar = 0;

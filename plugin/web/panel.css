@@ -335,3 +335,6 @@ a.caja:hover { background: #22262D; }
 .aviso-fin__cerrar { min-height: 44px; padding: 0 var(--e-16); background: transparent; border: 1px solid var(--borde-tenue); color: var(--tenue); font: inherit; cursor: pointer; }
 .aviso-fin__cerrar:hover { color: var(--texto); border-color: var(--texto); }
 @media (max-width: 600px) { .act__fila, .act__leyenda { grid-template-columns: 9ch minmax(0, 1fr) 3ch 4ch; } }
+.aviso-fin__plan-b { background: none; border: 0; padding: 0; color: var(--principal); font: inherit; text-decoration: underline; cursor: pointer; }
+.aviso-fin__plan-b:disabled { color: var(--tenue); text-decoration: none; cursor: default; }
+.detalle__ir { color: var(--principal); font-weight: 700; }
