@@ -111,7 +111,8 @@
       : [el("p", { class: "caja__nombre", text: a.nombre }),
          el("p", { class: "caja__modelo" }, modeloNodo(a)),
          el("p", { class: "caja__linea" }, esfuerzoNodo(a))];
-    const caja = el("a", { class: "caja", href: "#/agente/" + encodeURIComponent(a.id), "data-rol": a.rol, "data-estado": a.estado, "data-id": a.id, "aria-label": `Ver más sobre ${a.nombre}` },
+    const f = coincideFiltro(a);
+    const caja = el("a", { class: "caja" + (f === true ? " caja--resaltada" : f === false ? " caja--atenuada" : ""), href: "#/agente/" + encodeURIComponent(a.id), "data-rol": a.rol, "data-estado": a.estado, "data-id": a.id, "aria-label": `Ver más sobre ${a.nombre}` },
       ...cuerpo,
       el("p", { class: "caja__ahora", title: texto(a.ahora) }, texto(a.ahora) || "—"),
       est, notaNodo(a), miniTerminal(a.id), span("caja__vermas", "ver más ▸"));
@@ -242,16 +243,64 @@
     for (const a of estado.agentes.values()) for (const c in t) t[c] += (a.contadores && a.contadores[c]) || 0;
     return t;
   }
+  // ── actividad en vivo ──────────────────────────────────────
+  // La barra cuenta lo que pasó en el ÚLTIMO MINUTO (sube con el trabajo y baja sola cuando para);
+  // el total de la obra queda al lado, en pequeño. Cada fila es un botón: resalta a quién lo está haciendo.
+  const VENTANA_MS = 60_000;
+  const TIPOS = [["leyendo", "leidos"], ["cambiando", "cambiados"], ["comandos", "comandos"], ["fallos", "fallos"]];
+  let previoMinuto = {}, firmaActividad = "", firmaPuntos = "";
+  function recientes() {
+    const r = { leidos: 0, cambiados: 0, comandos: 0, fallos: 0 }, quien = { leidos: new Set(), cambiados: new Set(), comandos: new Set(), fallos: new Set() };
+    const corte = ahora() - VENTANA_MS;
+    for (const [id, arr] of estado.lineas) for (let i = arr.length - 1; i >= 0 && arr[i].t >= corte; i--) { const tp = arr[i].tipo; if (tp in r) { r[tp]++; quien[tp].add(id); } }
+    for (const a of estado.agentes.values()) for (const e of a.enCurso || []) if (e.tipo in quien && ahora() - e.t < 10 * 60_000) quien[e.tipo].add(a.id);
+    return { r, quien };
+  }
+  function enCursoAhora() {
+    const l = [];
+    for (const a of estado.agentes.values()) for (const e of a.enCurso || []) if (ahora() - e.t < 10 * 60_000) l.push({ a, e });
+    return l.sort((x, y) => x.e.t - y.e.t);
+  }
   function pintarActividad() {
-    const t = totales();
-    const filas = [["leyó archivos", t.leidos, "leidos"], ["cambió archivos", t.cambiados, "cambiados"], ["corrió comandos", t.comandos + t.pruebas, "comandos"], ["cosas que fallaron", t.fallos, "fallos"]];
-    const max = Math.max(1, ...filas.map((f) => f[1]));
+    const t = totales(), { r, quien } = recientes();
+    const total = { leidos: t.leidos, cambiados: t.cambiados, comandos: t.comandos + t.pruebas, fallos: t.fallos };
+    const max = Math.max(6, ...Object.values(r));
     const permisos = [...estado.agentes.values()].filter((a) => a.estado === "permiso").length;
+    const trabajando = [...estado.agentes.values()].filter((a) => a.estado === "trabajando").length;
+    const curso = enCursoAhora();
+    const firma = JSON.stringify([r, total, trabajando, permisos, estado.filtro, curso.map((x) => x.a.id + x.e.t + x.e.simple)]);
+    if (firma === firmaActividad && $("caja-actividad").firstChild) return;
+    firmaActividad = firma;
+    const filas = TIPOS.map(([nombre, tipo]) => {
+      const sube = r[tipo] > (previoMinuto[tipo] || 0);
+      const b = el("button", { type: "button", class: "act__fila" + (sube ? " sube" : ""), "data-tipo": tipo, "aria-pressed": String(estado.filtro === tipo),
+        title: quien[tipo].size ? "Ahora: " + [...quien[tipo]].map((id) => (estado.agentes.get(id) || {}).nombre).filter(Boolean).join(", ") : "Nadie en el último minuto",
+        "aria-label": `${nombre}: ${r[tipo]} en el último minuto, ${total[tipo]} en total. Pulsa para resaltar quién lo hace.` },
+        span(null, nombre), el("span", { class: "act__barra", "data-tipo": tipo, "aria-hidden": "true" }, barraAncho(r[tipo] / max)),
+        span("n", String(r[tipo])), span("tot", String(total[tipo])));
+      b.addEventListener("click", () => { estado.filtro = estado.filtro === tipo ? null : tipo; pintarArbol(); });
+      return b;
+    });
+    previoMinuto = r;
     $("caja-actividad").replaceChildren(el("div", { class: "caja", "data-rol": "actividad" },
-      el("p", { class: "act__cab" }, span(null, "OBRA · actividad"), el("span", null, span("k", "agentes "), String(estado.agentes.size), span("k", " · "), String([...estado.agentes.values()].filter((a) => a.estado === "trabajando").length), span("k", " trabajando"))),
-      ...filas.map(([n, v, tipo]) => el("p", { class: "act__fila", "data-tipo": tipo },
-        span(null, n), el("span", { class: "act__barra", "data-tipo": tipo, "aria-hidden": "true" }, barraAncho(v / max)), span("n", String(v)))),
-      el("p", { class: "act__nota" }, permisos ? `◆ ${permisos} espera${permisos > 1 ? "n" : ""} tu permiso` : "sin permisos pendientes")));
+      el("p", { class: "act__cab" }, span(null, "OBRA · en vivo"), el("span", null, span("k", "agentes "), String(estado.agentes.size), span("k", " · "), String(trabajando), span("k", " trabajando"))),
+      el("p", { class: "act__leyenda", title: "Barra y número: lo que pasó en el último minuto. A la derecha: el total de la obra." }, span("k", "1 min"), span("k", "total")),
+      ...filas,
+      el("div", { class: "act__ahora", "aria-live": "off" },
+        curso.length ? el("p", { class: "act__ahora-tit" }, span("k", "haciendo ahora")) : el("p", { class: "act__ahora-tit" }, span("k", trabajando ? "pensando · sin herramientas en curso" : "nadie está haciendo nada ahora")),
+        ...curso.slice(-3).map(({ a, e }) => el("p", { class: "act__ahora-fila" }, el("span", { class: "actor", "data-rol": a.rol, text: a.nombre }), span(null, " " + e.simple + " "), el("span", { class: "estado__reloj", "data-inicio": e.t }, "")))),
+      el("p", { class: "act__nota" }, permisos ? `◆ ${permisos} espera${permisos > 1 ? "n" : ""} tu permiso` : estado.filtro ? "resaltando: " + TIPOS.find((x) => x[1] === estado.filtro)[0] + " · pulsa otra vez para quitar" : "pulsa una fila para ver quién lo hace")));
+  }
+  function coincideFiltro(a) {
+    if (!estado.filtro) return null;
+    if ((a.enCurso || []).some((e) => e.tipo === estado.filtro)) return true;
+    const corte = ahora() - VENTANA_MS;
+    return (estado.lineas.get(a.id) || []).some((l) => l.t >= corte && l.tipo === estado.filtro);
+  }
+  function actividadDe(a) { // 0–4: cuántos puntos viajan hacia este agente
+    if (a.estado !== "trabajando") return 0;
+    const corte = ahora() - VENTANA_MS, n = (estado.lineas.get(a.id) || []).filter((l) => l.t >= corte).length;
+    return Math.min(4, 1 + Math.floor(n / 4) + ((a.enCurso || []).length ? 1 : 0));
   }
   function barraAncho(f) { const i = el("i"); i.style.width = Math.round(Math.max(0, Math.min(1, f)) * 100) + "%"; return i; }
   function pintarPruebas() {
@@ -304,15 +353,19 @@
     const R = tab.getBoundingClientRect();
     const caja = (n) => { if (!n) return null; const r = n.getBoundingClientRect(); return { x: r.left - R.left, y: r.top - R.top, w: r.width, h: r.height, cx: r.left - R.left + r.width / 2, b: r.bottom - R.top }; };
     const hijos = [];
-    const linea = (d, { color = "var(--linea)", guion = null, punto = false, flecha = false, dur = 2.4 } = {}) => {
+    const linea = (d, { color = "var(--linea)", guion = null, punto = false, flecha = false, dur = 2.4, n = 1, colorPunto = null, unaVez = false } = {}) => {
       hijos.push(svg("path", { d, fill: "none", stroke: color, "stroke-width": 1.2, ...(guion ? { "stroke-dasharray": guion } : {}), ...(flecha ? { "marker-end": "url(#flecha)" } : {}) }));
-      if (punto && !quieto) hijos.push(svg("circle", { r: 3.2, fill: color === "var(--linea)" ? "#E8EAED" : color }, svg("animateMotion", { dur: dur + "s", repeatCount: "indefinite", path: d })));
+      if (!punto || quieto) return;
+      const relleno = colorPunto || (color === "var(--linea)" ? "#E8EAED" : color);
+      for (let k = 0; k < n; k++) // puntos repartidos por el camino: más puntos = más trabajo
+        hijos.push(svg("circle", { r: k ? 2.4 : 3.2, fill: relleno, class: "punto" }, svg("animateMotion", { dur: dur + "s", begin: unaVez ? "0s" : (-k * dur / n).toFixed(2) + "s", repeatCount: unaVez ? "1" : "indefinite", fill: "freeze", path: d })));
     };
     const algunoTrabaja = (l) => l.some((a) => a.estado === "trabajando");
     const pc = caja($("caja-principal").firstElementChild), act = caja($("caja-actividad").firstElementChild);
     const rs = caja($("rotulo-subagentes")), rt = caja($("rotulo-terminales")), vu = caja($("vuelta"));
-    const subs = [...$("lista-subagentes").querySelectorAll(".caja")].map(caja);
-    const terms = [...$("lista-terminales").querySelectorAll(".caja")].map(caja);
+    const conId = (n) => { const c = caja(n); if (c) c.id = n.dataset.id; return c; };
+    const subs = [...$("lista-subagentes").querySelectorAll(".caja")].map(conId);
+    const terms = [...$("lista-terminales").querySelectorAll(".caja")].map(conId);
     const p = lista("principal")[0];
     // principal → actividad → rótulo de subagentes
     if (pc && act) linea(`M${pc.cx},${pc.b} L${act.cx},${act.y}`, { guion: "2 4", punto: p && p.estado === "trabajando", color: "var(--principal)", dur: 1.6 });
@@ -325,13 +378,20 @@
       const xs = filas.map((f) => f.cx);
       linea(`M${Math.min(...xs, origen.cx)},${yb} L${Math.max(...xs, origen.cx)},${yb}`);
       for (const f of filas) linea(`M${f.cx},${yb} L${f.cx},${y2}`, { flecha: true });
-      if (activo) for (const f of filas) linea(`M${origen.cx},${yb} L${f.cx},${yb} L${f.cx},${y2}`, { punto: true, color: "var(--linea)", dur: 2.2 + Math.random() });
+      for (const f of filas) {
+        const a = estado.agentes.get(f.id), n = a ? actividadDe(a) : (activo ? 1 : 0);
+        if (n) linea(`M${origen.cx},${yb} L${f.cx},${yb} L${f.cx},${y2}`, { punto: true, color: "var(--linea)", colorPunto: `var(--${a ? a.rol : "subagente"})`, dur: Math.max(1.1, 2.6 - n * 0.35), n });
+      }
     };
     const recoger = (filas, destino) => {
       if (!filas.length || !destino) return;
       const yb = Math.max(...filas.map((f) => f.b)) + 12;
       const xs = filas.map((f) => f.cx);
-      for (const f of filas) linea(`M${f.cx},${f.b} L${f.cx},${yb}`);
+      for (const f of filas) {
+        const a = estado.agentes.get(f.id), recien = a && a.fin && ahora() - a.fin < 20_000;
+        // al terminar, un punto verde vuelve hacia el orquestador
+        linea(`M${f.cx},${f.b} L${f.cx},${yb}${recien ? ` L${destino.cx},${yb} L${destino.cx},${destino.y - 4}` : ""}`, recien ? { punto: true, colorPunto: a.estado === "termino" ? "var(--termino)" : "var(--fallo)", dur: 1.6, unaVez: true } : {});
+      }
       linea(`M${Math.min(...xs, destino.cx)},${yb} L${Math.max(...xs, destino.cx)},${yb}`);
       linea(`M${destino.cx},${yb} L${destino.cx},${destino.y - 4}`, { flecha: true, color: "var(--principal)" });
     };
@@ -434,6 +494,27 @@
     if (detalleId) pintarDetalle(); else pintarArbol();
   }
 
+  // ── aviso final: todas las tareas terminaron ───────────────
+  function avisoFin(m) {
+    const d = $("aviso-fin"); if (!d) return;
+    const ok = m.resumen.filter((x) => x.estado === "termino").length, mal = m.resumen.length - ok;
+    $("fin-titulo").textContent = mal ? `Terminaron las tareas · ${mal} con problemas` : "Todas las tareas terminaron";
+    $("fin-sub").textContent = `${m.proyecto || "obra"} · ${m.resumen.length} agente${m.resumen.length > 1 ? "s" : ""}. ¿Quieres seguir trabajando?`;
+    $("fin-lista").replaceChildren(...m.resumen.map((x) => el("li", { "data-estado": x.estado },
+      span("fin__icono", x.estado === "termino" ? "✓" : x.estado === "fallo" ? "✗" : "■"),
+      el("span", { class: "actor", "data-rol": x.rol, text: x.nombre }),
+      span("k", x.tardoMs != null ? " · tardó " + tardo(x.tardoMs) : ""),
+      x.nota != null ? el("b", { class: "fin__nota", "data-nivel": x.nota >= 8 ? "alta" : x.nota >= 5 ? "media" : "baja", text: ` ${x.nota}/10` }) : span("k", " · sin nota"))));
+    const ir = $("fin-ir");
+    if (m.ir && m.ir.href) { ir.href = m.ir.href; ir.hidden = false; } else ir.hidden = true;
+    $("fin-chat").textContent = m.ir && m.ir.titulo ? `Te lleva al chat «${m.ir.titulo}» en la app de Claude.` : "Te lleva al chat del orquestador en la app de Claude.";
+    if (!d.open) d.showModal();
+    ir.focus();
+    const titulo = document.title; document.title = "✓ Terminó · " + titulo.replace(/^✓ Terminó · /, "");
+    anunciar("Todas las tareas terminaron");
+  }
+  document.addEventListener("click", (e) => { if (e.target && e.target.id === "fin-cerrar") $("aviso-fin").close(); });
+
   // ── mensajes del servidor ──────────────────────────────────
   let repintar = 0;
   const pedirArbol = () => { if (repintar) return; repintar = requestAnimationFrame(() => { repintar = 0; if (!detalleId) pintarArbol(); else { pintarDetalle(); pintarEncabezado(); pintarPie(); } }); };
@@ -470,6 +551,7 @@
         ol.scrollTop = ol.scrollHeight; break;
       }
       case "asesor": estado.asesor = msg.asesor; pedirArbol(); break;
+      case "fin": avisoFin(msg); break;
       case "procesos": {
         const antes = new Map((estado.procesos || []).map((p) => [p.id, p.estado]));
         estado.procesos = msg.procesos || [];
@@ -504,7 +586,12 @@
   // ── temporizadores: iconos, relojes y ritmo de tokens ──────
   let paso = 0;
   setInterval(() => { paso = (paso + 1) % GIRO.length; for (const i of document.querySelectorAll('[data-gira="1"]')) i.textContent = GIRO[paso]; }, 220);
-  setInterval(() => { for (const r of document.querySelectorAll(".estado__reloj")) reloj_(r); }, 1000);
+  setInterval(() => { for (const r of document.querySelectorAll(".estado__reloj")) reloj_(r); if (!detalleId && estado.obra) pintarActividad(); }, 1000);
+  setInterval(() => {
+    if (detalleId) return;
+    const f = [...estado.agentes.values()].map((a) => a.id + ":" + actividadDe(a) + (a.fin && ahora() - a.fin < 20_000 ? "v" : "")).join();
+    if (f !== firmaPuntos) { firmaPuntos = f; dibujarConectores(); }
+  }, 2000);
   setInterval(() => {
     const total = [...estado.agentes.values()].reduce((s, a) => s + (a.tokens || 0), 0) + ((estado.asesor && estado.asesor.tokens) || 0);
     if (estado.ultimoTotal != null) { estado.ritmo.push(Math.max(0, total - estado.ultimoTotal)); if (estado.ritmo.length > 30) estado.ritmo.shift(); if (!detalleId) pintarRitmo(); }

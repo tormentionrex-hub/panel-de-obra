@@ -16,6 +16,11 @@ const SILENCIO_FIN_MS = 3 * 60_000;
 // Sin cerrar el turno y sin escribir nada en este tiempo: se muestra «sin señales», nunca «trabajando».
 const SILENCIO_PERDIDO_MS = 30 * 60_000;
 import { corto, redactar } from "./redactar.mjs";
+import { enlaceClaude } from "./app-claude.mjs";
+// Lo que lleva más de esto sin respuesta no se cuenta como «en curso» (no se pintan tareas fantasma).
+const EN_CURSO_MAX_MS = 10 * 60_000;
+// El aviso final solo sale si el último agente terminó hace menos de esto (no al reconstruir obras viejas).
+const FIN_RECIENTE_MS = 15 * 60_000;
 
 const ESFUERZOS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const sinFormato = (x) => (x == null ? x : String(x).replace(/```[\s\S]*?```/g, " ").replace(/[#*_`>|]+/g, "").replace(/\s+/g, " ").trim());
@@ -55,8 +60,10 @@ export class Panel {
     if (["termino", "fallo", "detenido"].includes(a.estado) && !a.fin) a.fin = this.ahora();
     if (/^haiku/i.test(a.modelo || "") && !a.esfuerzo) a.esfuerzo = "no-aplica";
     if (["trabajando", "permiso", "espera"].includes(a.estado)) a.fin = null;
+    if (["termino", "fallo", "detenido"].includes(a.estado)) a.enCurso = [];
     this.agentes.set(cardId, a);
     if (a.evaluacion && a.fin && !a.evaluacionGuardada) this.guardarEvaluacion(a);
+    if (previo && previo.estado !== a.estado) this.revisarFin(a);
     const o = this.obras.get(a.obraId); if (o) this.tocar(o);
     // La página sigue la acción: cambia a otra obra si la que se ve ya terminó, o si en esa otra acaba de aparecer un agente nuevo.
     if (a.obraId && !this.enVista(a.obraId) && ["trabajando", "permiso"].includes(a.estado)) {
@@ -70,9 +77,9 @@ export class Panel {
     if (this.enVista(a.obraId)) this.emitir({ tipo: "agente", agente: a });
     return a;
   }
-  linea(cardId, simple, tecnico, clase = null, t = this.ahora()) {
+  linea(cardId, simple, tecnico, clase = null, t = this.ahora(), tipo = null) {
     const a = this.agentes.get(cardId); if (!a) return;
-    const l = { t, simple: corto(simple, 220), tecnico: corto(tecnico || simple, 220), clase };
+    const l = { t, simple: corto(simple, 220), tecnico: corto(tecnico || simple, 220), clase, ...(tipo ? { tipo } : {}) };
     const arr = this.lineas.get(cardId) || []; arr.push(l);
     if (arr.length > LIMITES.lineasPorAgente) arr.splice(0, arr.length - LIMITES.lineasPorAgente);
     this.lineas.set(cardId, arr);
@@ -259,6 +266,35 @@ export class Panel {
     else o.abrirConAgente = true;
   }
 
+  /** Herramientas sin respuesta de este agente (lo que está haciendo AHORA), sin las que llevan demasiado. */
+  enCurso(cardId) {
+    const herr = this.herramientas.get(cardId); if (!herr) return [];
+    const ahora = this.ahora(), r = [];
+    for (const h of herr.values()) if (h.t && ahora - h.t < EN_CURSO_MAX_MS) r.push({ tipo: h.desc.cuenta === "pruebas" ? "comandos" : h.desc.cuenta || "otro", simple: h.desc.simple, t: h.t });
+    return r.slice(-8);
+  }
+
+  /** Aviso final: cuando el último subagente o terminal deja de trabajar y el orquestador ya no está
+   *  trabajando, sale UNA vez por tanda, con lo que tardó cada uno, su nota y el enlace a su chat. */
+  revisarFin(cambiado) {
+    const o = this.obras.get(cambiado.obraId); if (!o || !o.abierta) return;
+    const todos = [...this.agentes.values()].filter((x) => x.obraId === o.id);
+    const hijos = todos.filter((x) => x.rol === "subagente" || x.rol === "terminal");
+    if (!hijos.length) return;
+    const vivo = (x) => ["trabajando", "permiso"].includes(x.estado);
+    if (hijos.some(vivo)) { o.finAvisado = false; return; }
+    const principal = todos.find((x) => x.rol === "principal");
+    if (o.finAvisado || (principal && vivo(principal))) return;
+    const ultimoFin = Math.max(...hijos.map((x) => x.fin || 0));
+    if (!ultimoFin || this.ahora() - ultimoFin > FIN_RECIENTE_MS) return;
+    o.finAvisado = true;
+    const ir = enlaceClaude(o.sesion);
+    const resumen = hijos.map((x) => ({ nombre: x.nombre, rol: x.rol, estado: x.estado, tardoMs: x.inicio && x.fin ? x.fin - x.inicio : null, nota: x.evaluacion ? x.evaluacion.nota : null }));
+    this.bitacora(o, principal ? principal.id : cambiado.id, "Terminaron todas las tareas de la obra");
+    if (!this.enVista(o.id)) { this.visible = o.id; this.emitir(this.snapshot()); }
+    this.emitir({ tipo: "fin", obraId: o.id, titulo: o.titulo, proyecto: o.proyecto, resumen, ir });
+  }
+
   /** /panel con una pestaña ya abierta: se le manda el estado actual en vez de abrir otra. */
   mostrarActual() { this.emitir(this.snapshot()); }
 
@@ -390,14 +426,15 @@ export class Panel {
         if (b.type === "tool_use") {
           if (herr.has(b.id)) continue;
           const d = describir(b.name, b.input || {});
-          herr.set(b.id, { desc: d, input: { ...(b.input || {}), __tool: b.name } });
+          herr.set(b.id, { desc: d, input: { ...(b.input || {}), __tool: b.name }, t });
           cambios.ahora = { simple: d.simple, tecnico: d.tecnico };
           if (d.cuenta) cambios.contadores = { ...(cambios.contadores || a.contadores), [d.cuenta]: ((cambios.contadores || a.contadores)[d.cuenta] || 0) + 1 };
           if (d.terminal) obra.esperadas.set(d.terminal, t);
           if (["Agent", "Task"].includes(b.name) && !this.agentes.has("t:" + b.id)) this.nuevoSubagente(obra, b.id, b.input || {}, cardId, t);
           const enFondo = (b.input && b.input.run_in_background === true) || /preview_start$/.test(b.name || "");
           if (enFondo) this.proceso(obra, "tu:" + b.id, { simple: d.simple, tecnico: d.tecnico, descripcion: corto(b.input && (b.input.description || b.input.name || b.input.url), 160), quien: a.nombre, quienRol: a.rol, inicio: t, estado: "running" });
-          this.linea(cardId, d.simple, d.tecnico, null, t);
+          this.linea(cardId, d.simple, d.tecnico, null, t, d.cuenta === "pruebas" ? "comandos" : d.cuenta || null);
+          cambios.enCurso = this.enCurso(cardId);
         } else if (b.type === "text" && /AUTOEVALUACI/i.test(b.text || "")) {
           const ev2 = autoevaluacion(b.text); if (ev2) cambios.evaluacion = ev2;
         } else if (b.type === "server_tool_use" && b.name === "advisor") {
@@ -445,10 +482,10 @@ export class Panel {
           if (m) { obra.procesosAlias.set(m[1], "tu:" + b.tool_use_id); obra.procesos.delete("bg:" + m[1]); }
           if (b.is_error) this.proceso(obra, "tu:" + b.tool_use_id, { estado: "failed" });
         }
-        const cambios = {};
+        const cambios = { enCurso: this.enCurso(cardId) };
         if (a.permiso) { cambios.permiso = null; cambios.estado = "trabajando"; cambios.estadoTexto = null; }
         if (r) {
-          this.linea(cardId, r.simple, r.tecnico, r.clase, t);
+          this.linea(cardId, r.simple, r.tecnico, r.clase, t, r.fallo && !r.rechazo ? "fallos" : null);
           if (r.fallo && !r.rechazo) cambios.contadores = { ...a.contadores, fallos: (a.contadores.fallos || 0) + 1 };
           if (r.rechazo) this.bitacora(obra, cardId, "Rechazaste su permiso");
           if (r.pruebas) { obra.pruebas = { ...r.pruebas, quien: a.nombre }; this.obraCambio(obra); }

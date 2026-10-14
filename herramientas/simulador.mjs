@@ -46,13 +46,14 @@ function agente(id, cambios) {
   return a;
 }
 function linea(id, simple, tecnico, { clase = null, cuenta = null, tokens = 900, ahora = clase !== "error" && clase !== "ok" } = {}) {
-  const l = { t: Date.now(), simple, tecnico, clase };
+  const tipo = cuenta === "pruebas" ? "comandos" : clase === "error" ? "fallos" : ["leidos", "cambiados", "comandos"].includes(cuenta) ? cuenta : null;
+  const l = { t: Date.now(), simple, tecnico, clase, ...(tipo ? { tipo } : {}) };
   const arr = st.lineas.get(id) || []; arr.push(l); st.lineas.set(id, arr);
   emitir({ tipo: "linea", agenteId: id, linea: l });
   const a = st.agentes.get(id);
   const contadores = { ...a.contadores };
   if (cuenta) contadores[cuenta] = (contadores[cuenta] || 0) + 1;
-  agente(id, { contadores, tokens: (a.tokens || 0) + tokens, ...(a.rol === "principal" ? { contexto: (a.contexto || 0) + tokens * 4 } : {}), ...(ahora ? { ahora: { simple, tecnico } } : {}) });
+  agente(id, { contadores, tokens: (a.tokens || 0) + tokens, ...(a.rol === "principal" ? { contexto: (a.contexto || 0) + tokens * 4 } : {}), ...(ahora ? { ahora: { simple, tecnico } } : {}), enCurso: ahora && tipo && tipo !== "fallos" ? [{ tipo, simple, t: Date.now() }] : [] });
 }
 function bitacora(id, texto) {
   const a = st.agentes.get(id);
@@ -195,6 +196,8 @@ const GUION = [
   [78, () => {
     agente(P, { estado: "espera", estadoTexto: "Terminó su turno; espera instrucciones", resultado: "Obra al 80 %: pedidos y API listos; frontend-pedidos se detuvo por un error del servicio y hay que reanudarlo." });
     bitacora(P, "Terminó su turno");
+    const resumen = [...st.agentes.values()].filter((a) => a.rol !== "principal").map((a) => ({ nombre: a.nombre, rol: a.rol, estado: a.estado === "fallo" ? "fallo" : "termino", tardoMs: Date.now() - (a.inicio || Date.now()), nota: a.rol === "subagente" ? 8 : null }));
+    emitir({ tipo: "fin", obraId: "simulacion", titulo: "obra de ejemplo", proyecto: "ejemplo", resumen, ir: { href: "#simulacion", titulo: "orquestador (simulación)" } });
   }],
 ];
 const DURACION = 95;

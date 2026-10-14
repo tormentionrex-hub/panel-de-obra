@@ -293,3 +293,35 @@ test("automático: en cualquier carpeta, lanzar un subagente o una terminal con 
   p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-auto3", tool_name: "Bash", tool_use_id: "tc1", tool_input: { command: "npm test" } });
   assert.equal(p.agentes.has("p:s-auto3"), false, "un comando cualquiera no abre nada");
 });
+
+test("actividad en vivo: lo que está en curso sube al lanzar una herramienta y baja al terminar", () => {
+  const dir = join(homedir(), ".claude", "projects", "panel-prueba-unitaria"); mkdirSync(dir, { recursive: true });
+  const tr = join(dir, "sesion-encurso.jsonl"); writeFileSync(tr, "");
+  const { p } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-ec", command_name: "director-de-obra", prompt: "/director-de-obra e", transcript_path: tr });
+  const ya = new Date().toISOString();
+  writeFileSync(tr, JSON.stringify({ type: "assistant", timestamp: ya, message: { id: "e1", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "k1", name: "Bash", input: { command: "npm test" } }, { type: "tool_use", id: "k2", name: "Read", input: { file_path: "a.ts" } }] } }) + "\n", { flag: "a" });
+  p.tic();
+  assert.deepEqual(p.agentes.get("p:s-ec").enCurso.map((e) => e.tipo).sort(), ["comandos", "leidos"]);
+  assert.ok((p.lineas.get("p:s-ec") || []).some((l) => l.tipo === "comandos"), "las líneas llevan su tipo");
+  writeFileSync(tr, JSON.stringify({ type: "user", timestamp: ya, message: { content: [{ type: "tool_result", tool_use_id: "k2", content: "x" }] } }) + "\n", { flag: "a" });
+  p.tic();
+  assert.deepEqual(p.agentes.get("p:s-ec").enCurso.map((e) => e.tipo), ["comandos"], "bajó al terminar la lectura");
+});
+
+test("aviso final: sale una vez cuando termina el último agente y el orquestador ya no trabaja", () => {
+  const { p, msgs } = nuevoPanel();
+  p.ingerir({ hook_event_name: "UserPromptExpansion", session_id: "s-fin", command_name: "director-de-obra", prompt: "/director-de-obra f" });
+  for (const id of ["f1", "f2"]) p.ingerir({ hook_event_name: "PreToolUse", session_id: "s-fin", tool_name: "Agent", tool_use_id: id, tool_input: { description: "agente " + id, subagent_type: "lector", prompt: "lee" } });
+  p.ingerir({ hook_event_name: "Stop", session_id: "s-fin", last_assistant_message: "lancé dos" });
+  const fines = () => msgs.filter((m) => m.tipo === "fin");
+  p.agente("t:f1", { estado: "termino" });
+  assert.equal(fines().length, 0, "queda uno trabajando");
+  p.agente("t:f2", { estado: "termino", evaluacion: { nota: 9 } });
+  assert.equal(fines().length, 1);
+  const f = fines()[0];
+  assert.equal(f.resumen.length, 2); assert.equal(f.resumen.find((x) => x.nombre === "agente f2").nota, 9);
+  assert.equal(f.ir, null, "sin un id de sesión válido no se inventa un enlace");
+  p.agente("t:f2", { estadoTexto: "x" });
+  assert.equal(fines().length, 1, "no se repite");
+});
